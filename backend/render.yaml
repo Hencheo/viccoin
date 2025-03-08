@@ -2,15 +2,15 @@ services:
   - type: web
     name: viccoin-backend
     env: python
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: gunicorn core.wsgi:application
+    buildCommand: cd backend && pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: cd backend && gunicorn core.wsgi:application
     envVars:
       - key: SECRET_KEY
         value: 5-77qdC_ZF8WbyX6jFkZEpWYLxrA0c7_NrB2fzGvqah-IFdFvDrbLWNgpdZHMSvhGsE
       - key: DEBUG
         value: false
       - key: ALLOWED_HOSTS
-        value: "viccoin-backend.onrender.com"
+        value: "localhost,127.0.0.1,viccoin-backend.onrender.com,viccoin.onrender.com"
       - key: CORS_ALLOWED_ORIGINS
         value: "https://viccoin.onrender.com"
       # Firebase credenciais

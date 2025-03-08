@@ -3,7 +3,7 @@ services:
     name: viccoin-backend
     env: python
     buildCommand: cd backend && pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: cd backend && gunicorn core.wsgi:application
+    startCommand: cd backend && PYTHONPATH=/opt/render/project/src/backend gunicorn --chdir /opt/render/project/src/backend core.wsgi:application
     envVars:
       - key: SECRET_KEY
         value: 5-77qdC_ZF8WbyX6jFkZEpWYLxrA0c7_NrB2fzGvqah-IFdFvDrbLWNgpdZHMSvhGsE

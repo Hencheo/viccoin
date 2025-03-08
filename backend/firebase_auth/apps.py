@@ -19,32 +19,11 @@ class FirebaseAuthConfig(AppConfig):
         if 'migrate' in sys.argv or 'collectstatic' in sys.argv or 'makemigrations' in sys.argv:
             return
 
-        # Importações dentro do método para evitar problemas de dependência circular
-        try:
-            from .authentication import set_firebase_initialized
-        except ImportError:
-            logger.error("Erro ao importar authentication.py")
-            return
-            
-        try:
-            import firebase_admin
-            from firebase_admin import credentials
-            # Firebase está disponível - verificamos a existência de credenciais
-            firebase_available = True
-        except ImportError:
-            firebase_available = False
-            logger.warning("Firebase Admin SDK não disponível, usando mock")
-            from .mock_firebase import firebase_admin, credentials
-            
-        # Definir como False inicialmente, pode mudar se a inicialização tiver sucesso
+        # Importações do módulo __init__.py, que já trata dos mocks se necessário
+        from . import firebase_admin, credentials, set_firebase_initialized
+        
+        # Definir inicialmente como não inicializado
         set_firebase_initialized(False)
-            
-        # Se Firebase não está disponível, abortamos
-        if not firebase_available:
-            logger.warning("Usando versão mock do Firebase. Apenas para desenvolvimento.")
-            # Ainda assim, definimos como inicializado para permitir o uso dos mocks
-            set_firebase_initialized(True)
-            return
             
         # Verificar primeiro se há variáveis de ambiente para Firebase
         firebase_env_vars = {
@@ -82,9 +61,9 @@ class FirebaseAuthConfig(AppConfig):
                 logger.info("Firebase inicializado com sucesso usando variáveis de ambiente!")
             
             # Fallback para arquivo de credenciais se variáveis de ambiente não estiverem completas
-            elif hasattr(os.environ, 'FIREBASE_CREDENTIALS_PATH') or hasattr(os.environ, 'firebase_credentials_path'):
+            elif hasattr(os.environ, 'FIREBASE_CREDENTIALS_PATH') or 'FIREBASE_CREDENTIALS_PATH' in os.environ:
                 # Obter caminho das credenciais
-                creds_path = os.environ.get('FIREBASE_CREDENTIALS_PATH') or os.environ.get('firebase_credentials_path')
+                creds_path = os.environ.get('FIREBASE_CREDENTIALS_PATH')
                 
                 if os.path.exists(creds_path):
                     try:

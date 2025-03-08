@@ -1,17 +1,30 @@
-import firebase_admin
-from firebase_admin import auth, credentials
 import os
+import logging
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import authentication
 from rest_framework import exceptions
-import logging
 
 logger = logging.getLogger(__name__)
 
-# A inicialização do Firebase será realizada quando as credenciais estiverem disponíveis.
-# Este comentário será substituído pelo código de inicialização real quando as credenciais forem fornecidas.
+# Tentar importar o firebase_admin
+try:
+    import firebase_admin
+    from firebase_admin import auth, credentials
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    logger.warning("Firebase Admin SDK não pôde ser importado. Usando mock para desenvolvimento.")
+    from .mock_firebase import auth, credentials, firebase_admin_mock as firebase_admin, initialize_app
+    FIREBASE_AVAILABLE = False
+
+# Variável global para controlar o estado de inicialização
 firebase_initialized = False
+
+def set_firebase_initialized(status):
+    """Define o status de inicialização do Firebase."""
+    global firebase_initialized
+    firebase_initialized = status
+    logger.info(f"Status de inicialização do Firebase definido como: {status}")
 
 class FirebaseUser:
     """
@@ -69,7 +82,11 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
             return None
             
         # Permitir acesso ao endpoint de saúde sem autenticação
-        if request.path_info.startswith('/api/health/'):
+        if request.path_info.startswith('/api/health'):
+            return None
+            
+        # Permitir acesso ao endpoint raiz para testes
+        if request.path_info == '/':
             return None
             
         # MODO TESTE: Permitir acesso a todos os endpoints sem autenticação para testes
@@ -86,6 +103,16 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
             request.firebase_user = firebase_user
             return (firebase_user, 'user_teste_123')
             
+        # Verificar se o Firebase está disponível
+        if not FIREBASE_AVAILABLE:
+            logger.error("Firebase Admin SDK não está disponível. A autenticação não funcionará.")
+            raise exceptions.AuthenticationFailed('Serviço de autenticação indisponível')
+            
+        # Verificar se o Firebase foi inicializado
+        if not firebase_initialized:
+            logger.warning("Firebase não inicializado. Você precisa configurar as credenciais do Firebase.")
+            raise exceptions.AuthenticationFailed('Firebase não está configurado corretamente no servidor')
+            
         # Obter o token Authorization do cabeçalho
         auth_header = request.META.get('HTTP_AUTHORIZATION')
         if not auth_header:
@@ -99,11 +126,6 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
             id_token = token_parts[1]
         except (IndexError, ValueError):
             return None
-
-        # Verificar se o Firebase foi inicializado
-        if not firebase_initialized:
-            logger.warning("Firebase não inicializado. Você precisa configurar as credenciais do Firebase.")
-            raise exceptions.AuthenticationFailed('Firebase não está configurado corretamente no servidor')
             
         # Verificar o token com o Firebase
         try:

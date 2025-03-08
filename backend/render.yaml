@@ -2,7 +2,7 @@ services:
   - type: web
     name: viccoin-backend
     env: python
-    buildCommand: cd backend && pip install -r requirements.txt && python manage.py collectstatic --noinput
+    buildCommand: cd backend && pip install -r requirements.txt && pip install firebase-admin numpy && python manage.py collectstatic --noinput
     startCommand: cd backend && PYTHONPATH=/opt/render/project/src/backend gunicorn --chdir /opt/render/project/src/backend core.wsgi:application
     envVars:
       - key: SECRET_KEY

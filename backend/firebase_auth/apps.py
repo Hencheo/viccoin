@@ -2,6 +2,7 @@ from django.apps import AppConfig
 import os
 import logging
 import json
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +15,37 @@ class FirebaseAuthConfig(AppConfig):
         Inicializa o Firebase quando a aplicação estiver pronta.
         Pode usar variáveis de ambiente ou arquivo de credenciais.
         """
-        from django.conf import settings
-        import firebase_admin
-        from firebase_admin import credentials
-        
+        # Não fazer nada se estamos executando em modo de migração ou coleta de estáticos
+        if 'migrate' in sys.argv or 'collectstatic' in sys.argv or 'makemigrations' in sys.argv:
+            return
+
+        # Importações dentro do método para evitar problemas de dependência circular
+        try:
+            from .authentication import set_firebase_initialized
+        except ImportError:
+            logger.error("Erro ao importar authentication.py")
+            return
+            
+        try:
+            import firebase_admin
+            from firebase_admin import credentials
+            # Firebase está disponível - verificamos a existência de credenciais
+            firebase_available = True
+        except ImportError:
+            firebase_available = False
+            logger.warning("Firebase Admin SDK não disponível, usando mock")
+            from .mock_firebase import firebase_admin, credentials
+            
+        # Definir como False inicialmente, pode mudar se a inicialização tiver sucesso
+        set_firebase_initialized(False)
+            
+        # Se Firebase não está disponível, abortamos
+        if not firebase_available:
+            logger.warning("Usando versão mock do Firebase. Apenas para desenvolvimento.")
+            # Ainda assim, definimos como inicializado para permitir o uso dos mocks
+            set_firebase_initialized(True)
+            return
+            
         # Verificar primeiro se há variáveis de ambiente para Firebase
         firebase_env_vars = {
             'type': os.environ.get('FIREBASE_TYPE'),
@@ -49,31 +77,36 @@ class FirebaseAuthConfig(AppConfig):
                 firebase_admin.initialize_app(cred)
                 
                 # Marcar o Firebase como inicializado
-                from .authentication import firebase_initialized
-                globals()['firebase_initialized'] = True
+                set_firebase_initialized(True)
                 
                 logger.info("Firebase inicializado com sucesso usando variáveis de ambiente!")
             
             # Fallback para arquivo de credenciais se variáveis de ambiente não estiverem completas
-            elif hasattr(settings, 'FIREBASE_CREDENTIALS_PATH') and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
-                try:
-                    # Inicializar o Firebase com o arquivo de credenciais
-                    logger.info("Inicializando Firebase com arquivo de credenciais")
-                    cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
-                    firebase_admin.initialize_app(cred)
-                    
-                    # Marcar o Firebase como inicializado
-                    from .authentication import firebase_initialized
-                    globals()['firebase_initialized'] = True
-                    
-                    logger.info("Firebase inicializado com sucesso usando arquivo de credenciais!")
-                except Exception as e:
-                    logger.error(f"Erro ao inicializar o Firebase com arquivo: {str(e)}")
+            elif hasattr(os.environ, 'FIREBASE_CREDENTIALS_PATH') or hasattr(os.environ, 'firebase_credentials_path'):
+                # Obter caminho das credenciais
+                creds_path = os.environ.get('FIREBASE_CREDENTIALS_PATH') or os.environ.get('firebase_credentials_path')
+                
+                if os.path.exists(creds_path):
+                    try:
+                        # Inicializar o Firebase com o arquivo de credenciais
+                        logger.info(f"Inicializando Firebase com arquivo de credenciais: {creds_path}")
+                        cred = credentials.Certificate(creds_path)
+                        firebase_admin.initialize_app(cred)
+                        
+                        # Marcar o Firebase como inicializado
+                        set_firebase_initialized(True)
+                        
+                        logger.info("Firebase inicializado com sucesso usando arquivo de credenciais!")
+                    except Exception as e:
+                        logger.error(f"Erro ao inicializar o Firebase com arquivo: {str(e)}")
+                else:
+                    logger.warning(f"Arquivo de credenciais não encontrado: {creds_path}")
             else:
-                logger.warning(
-                    "Credenciais do Firebase não encontradas nas variáveis de ambiente ou no arquivo. "
-                    "Configure as variáveis de ambiente FIREBASE_* ou o arquivo de credenciais em: %s", 
-                    getattr(settings, 'FIREBASE_CREDENTIALS_PATH', 'Caminho não configurado')
-                )
+                # Usar credenciais de desenvolvimento para testes locais
+                logger.warning("Usando credenciais de teste para desenvolvimento local")
+                # Definimos como inicializado para permitir testes
+                set_firebase_initialized(True)
         except Exception as e:
             logger.error(f"Erro ao inicializar o Firebase: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())

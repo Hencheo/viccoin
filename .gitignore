@@ -1,0 +1,56 @@
+# Django
+*.log
+*.pot
+*.pyc
+__pycache__/
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media
+
+# Ambientes virtuais
+venv/
+ENV/
+env/
+
+# Credenciais
+*credentials.json
+*.pem
+*.key
+chave-privada-firebase.json
+backend/credentials/firebase-credentials.json
+
+# Arquivos de ambiente
+.env
+backend/.env
+
+# Arquivos estáticos coletados
+staticfiles/
+backend/staticfiles/
+
+# Arquivos temporários
+*.swp
+*~
+.DS_Store
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Dependências e pacotes
+*.egg-info/
+.installed.cfg
+*.egg
+node_modules/
+
+# Logs
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos de deploy
+.vercel
+.netlify

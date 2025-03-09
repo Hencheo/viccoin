@@ -63,9 +63,24 @@ def teste_simples(request):
         }
     })
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def teste_raiz(request):
+    """
+    Endpoint de teste na raiz do site
+    """
+    return JsonResponse({
+        'status': 'ok',
+        'message': 'Teste direto na raiz do site',
+        'backend_version': '1.0.0'
+    })
+
 urlpatterns = [
     # Raiz do site
     path('', root_view, name='root'),
+    
+    # Teste na raiz
+    path('teste', teste_raiz, name='teste_raiz'),
     
     # Endpoint de saúde - acessível com ou sem barra no final
     path('api/health/', health_check, name='health_check'),

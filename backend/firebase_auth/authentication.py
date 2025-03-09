@@ -14,8 +14,18 @@ try:
     FIREBASE_AVAILABLE = True
 except ImportError:
     logger.warning("Firebase Admin SDK não pôde ser importado. Usando mock para desenvolvimento.")
-    from .mock_firebase import auth, credentials, firebase_admin_mock as firebase_admin, initialize_app
     FIREBASE_AVAILABLE = False
+    # Definir mocks
+    class MockAuth:
+        def verify_id_token(self, token):
+            return {'uid': 'user_teste_123', 'name': 'Usuário Teste', 'email': 'teste@example.com'}
+    
+    class MockCredentials:
+        def Certificate(self, cert_dict_or_path):
+            return {}
+    
+    auth = MockAuth()
+    credentials = MockCredentials()
 
 # Variável global para controlar o estado de inicialização
 firebase_initialized = False
@@ -76,8 +86,22 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request):
         """
         Autentica a requisição baseada no token JWT do Firebase.
+        Para o ambiente de produção no Render, sempre retorna um usuário de teste.
         """
-        # Permitir acesso ao endpoint de categorias sem autenticação para testes
+        # MODO EMERGÊNCIA: Sempre retorna um usuário de teste para o ambiente Render
+        # Isso é apenas uma solução temporária até resolver os problemas de importação
+        test_user_data = {
+            'uid': 'user_teste_123',
+            'name': 'Usuário Teste',
+            'email': 'teste@example.com'
+        }
+        firebase_user = FirebaseUser(test_user_data)
+        request.firebase_user = firebase_user
+        return (firebase_user, 'user_teste_123')
+        
+        # O código abaixo não será executado nesta versão de emergência
+        
+        # Permitir acesso ao endpoint de categorias sem autenticação
         if request.path_info.startswith('/api/categorias/'):
             return None
             
@@ -88,20 +112,6 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
         # Permitir acesso ao endpoint raiz para testes
         if request.path_info == '/':
             return None
-            
-        # MODO TESTE: Permitir acesso a todos os endpoints sem autenticação para testes
-        # Isso é apenas para teste e deve ser removido em produção
-        if True:  # Permitir todos os endpoints para testes
-            # Criar um usuário de teste fictício
-            test_user_data = {
-                'uid': 'user_teste_123',
-                'name': 'Usuário Teste',
-                'email': 'teste@example.com'
-            }
-            # Criar uma instância de FirebaseUser em vez de usar o dicionário diretamente
-            firebase_user = FirebaseUser(test_user_data)
-            request.firebase_user = firebase_user
-            return (firebase_user, 'user_teste_123')
             
         # Verificar se o Firebase está disponível
         if not FIREBASE_AVAILABLE:

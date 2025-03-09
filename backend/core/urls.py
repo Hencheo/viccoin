@@ -18,6 +18,11 @@ from django.urls import path, include, re_path
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
+from django.shortcuts import redirect
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -43,7 +48,10 @@ def root_view(request):
             'health': '/api/health/',
             'categorias': '/api/categorias/',
             'despesas': '/api/despesas/',
-            'receitas': '/api/receitas/'
+            'receitas': '/api/receitas/',
+            'fallback_categorias': '/api/categorias-fallback/',
+            'fallback_despesas': '/api/despesas-fallback/',
+            'fallback_receitas': '/api/receitas-fallback/'
         }
     })
 
@@ -75,6 +83,25 @@ def teste_raiz(request):
         'backend_version': '1.0.0'
     })
 
+# Redirecionamentos para endpoints de fallback
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def categorias_redirect(request):
+    """Redireciona para o endpoint de fallback de categorias"""
+    return redirect('/api/categorias-fallback/')
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def receitas_redirect(request):
+    """Redireciona para o endpoint de fallback de receitas"""
+    return redirect('/api/receitas-fallback/')
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def despesas_redirect(request):
+    """Redireciona para o endpoint de fallback de despesas"""
+    return redirect('/api/despesas-fallback/')
+
 urlpatterns = [
     # Raiz do site
     path('', root_view, name='root'),
@@ -85,6 +112,16 @@ urlpatterns = [
     # Endpoint de saúde - acessível com ou sem barra no final
     path('api/health/', health_check, name='health_check'),
     path('api/health', health_check),  # Versão sem barra no final
+    
+    # Redirecionamentos para os endpoints principais
+    path('api/categorias/', categorias_redirect, name='categorias_redirect'),
+    path('api/categorias', categorias_redirect),
+    
+    path('api/receitas/', receitas_redirect, name='receitas_redirect'),
+    path('api/receitas', receitas_redirect),
+    
+    path('api/despesas/', despesas_redirect, name='despesas_redirect'),
+    path('api/despesas', despesas_redirect),
     
     # Endpoint de teste simples
     path('api/teste/', teste_simples, name='teste_simples'),

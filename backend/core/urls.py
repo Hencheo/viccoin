@@ -47,6 +47,22 @@ def root_view(request):
         }
     })
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def teste_simples(request):
+    """
+    Endpoint para testes sem uso do Firestore
+    """
+    return JsonResponse({
+        'status': 'ok',
+        'message': 'Este é um endpoint de teste que não usa Firestore',
+        'data': {
+            'nome': 'VicCoin',
+            'versao': '1.0.0',
+            'ambiente': 'Produção'
+        }
+    })
+
 urlpatterns = [
     # Raiz do site
     path('', root_view, name='root'),
@@ -54,6 +70,10 @@ urlpatterns = [
     # Endpoint de saúde - acessível com ou sem barra no final
     path('api/health/', health_check, name='health_check'),
     path('api/health', health_check),  # Versão sem barra no final
+    
+    # Endpoint de teste simples
+    path('api/teste/', teste_simples, name='teste_simples'),
+    path('api/teste', teste_simples),  # Versão sem barra no final
     
     # Outros endpoints da API
     path('api/', include('firestore_api.urls')),  # Incluindo as URLs do nosso app Firestore

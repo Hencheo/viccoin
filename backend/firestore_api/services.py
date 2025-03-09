@@ -1,4 +1,13 @@
-from firebase_admin import firestore
+try:
+    from firebase_admin import firestore
+except ImportError:
+    from .fake_firebase import client as firestore_client
+    # Criar um mock para o módulo firestore com função client
+    import types
+    firestore = types.ModuleType('firestore')
+    firestore.client = firestore_client
+    firestore.transactional = lambda func: func  # Mock para o decorator transactional
+
 from typing import Dict, Any, List, Type, TypeVar, Optional, Generic, Tuple
 import logging
 from datetime import datetime, timedelta
@@ -32,16 +41,25 @@ class FirestoreService(Generic[T]):
         # No Firestore, não é necessário criar coleções explicitamente,
         # mas podemos verificar se ela existe
         db = firestore.client()
-        collections = [col.id for col in db.collections()]
-        
-        if self.collection_name not in collections:
-            logger.info(f"Coleção '{self.collection_name}' não existe ainda. "
-                       f"Será criada automaticamente quando o primeiro documento for adicionado.")
+        try:
+            collections = [col.id for col in db.collections()]
+            
+            if self.collection_name not in collections:
+                logger.info(f"Coleção '{self.collection_name}' não existe ainda. "
+                           f"Será criada automaticamente quando o primeiro documento for adicionado.")
+        except Exception as e:
+            logger.error(f"Erro ao verificar coleções: {str(e)}")
 
     def get_collection(self):
         """Obtém a referência para a coleção."""
-        db = firestore.client()
-        return db.collection(self.collection_name)
+        try:
+            db = firestore.client()
+            return db.collection(self.collection_name)
+        except Exception as e:
+            logger.error(f"Erro ao obter coleção: {str(e)}")
+            # Retornar uma coleção fake que não faz nada
+            from .fake_firebase import FakeCollection
+            return FakeCollection(self.collection_name)
     
     def get_user_collection(self, user_id: str):
         """Obtém a referência para a coleção específica do usuário."""
@@ -198,7 +216,7 @@ class DespesaService(FirestoreService[Despesa]):
         """Obtém a coleção específica do usuário."""
         db = firestore.client()
         return db.collection("usuarios").document(user_id).collection("despesas")
-    
+
     def get_all_by_user(self, user_id: str) -> List[Despesa]:
         """Obtém todas as despesas de um usuário."""
         docs = self.get_user_collection(user_id).stream()

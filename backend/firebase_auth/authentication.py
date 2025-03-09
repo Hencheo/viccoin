@@ -7,25 +7,26 @@ from rest_framework import exceptions
 
 logger = logging.getLogger(__name__)
 
-# Tentar importar o firebase_admin
+# Configurar acesso ao Firebase Admin SDK
 try:
     import firebase_admin
     from firebase_admin import auth, credentials
     FIREBASE_AVAILABLE = True
-except ImportError:
-    logger.warning("Firebase Admin SDK não pôde ser importado. Usando mock para desenvolvimento.")
-    FIREBASE_AVAILABLE = False
-    # Definir mocks
-    class MockAuth:
-        def verify_id_token(self, token):
-            return {'uid': 'user_teste_123', 'name': 'Usuário Teste', 'email': 'teste@example.com'}
-    
-    class MockCredentials:
-        def Certificate(self, cert_dict_or_path):
-            return {}
-    
-    auth = MockAuth()
-    credentials = MockCredentials()
+    logger.info("Firebase Admin SDK importado com sucesso")
+except ImportError as e:
+    logger.error(f"Erro ao importar Firebase Admin SDK: {str(e)}")
+    logger.error("Verificando instalação do firebase-admin...")
+    import subprocess
+    try:
+        subprocess.check_call(["pip", "install", "firebase-admin"])
+        import firebase_admin
+        from firebase_admin import auth, credentials
+        FIREBASE_AVAILABLE = True
+        logger.info("Firebase Admin SDK instalado e importado com sucesso")
+    except Exception as e:
+        logger.critical(f"Não foi possível instalar o Firebase Admin SDK: {str(e)}")
+        FIREBASE_AVAILABLE = False
+        raise ImportError(f"Firebase Admin SDK não disponível: {str(e)}")
 
 # Variável global para controlar o estado de inicialização
 firebase_initialized = False
@@ -86,21 +87,7 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request):
         """
         Autentica a requisição baseada no token JWT do Firebase.
-        Para o ambiente de produção no Render, sempre retorna um usuário de teste.
         """
-        # MODO EMERGÊNCIA: Sempre retorna um usuário de teste para o ambiente Render
-        # Isso é apenas uma solução temporária até resolver os problemas de importação
-        test_user_data = {
-            'uid': 'user_teste_123',
-            'name': 'Usuário Teste',
-            'email': 'teste@example.com'
-        }
-        firebase_user = FirebaseUser(test_user_data)
-        request.firebase_user = firebase_user
-        return (firebase_user, 'user_teste_123')
-        
-        # O código abaixo não será executado nesta versão de emergência
-        
         # Permitir acesso ao endpoint de categorias sem autenticação
         if request.path_info.startswith('/api/categorias/'):
             return None
@@ -126,6 +113,17 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
         # Obter o token Authorization do cabeçalho
         auth_header = request.META.get('HTTP_AUTHORIZATION')
         if not auth_header:
+            # Se estamos em desenvolvimento, criar um usuário de teste
+            if settings.DEBUG:
+                test_user_data = {
+                    'uid': 'user_teste_123',
+                    'name': 'Usuário Teste',
+                    'email': 'teste@example.com'
+                }
+                firebase_user = FirebaseUser(test_user_data)
+                request.firebase_user = firebase_user
+                logger.debug("Modo DEBUG: Usando usuário de teste para autenticação")
+                return (firebase_user, 'user_teste_123')
             return None
         
         # Verificar o formato do token

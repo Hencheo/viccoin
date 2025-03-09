@@ -1,21 +1,30 @@
-try:
-    from firebase_admin import firestore
-except ImportError:
-    from .fake_firebase import client as firestore_client
-    # Criar um mock para o módulo firestore com função client
-    import types
-    firestore = types.ModuleType('firestore')
-    firestore.client = firestore_client
-    firestore.transactional = lambda func: func  # Mock para o decorator transactional
-
-from typing import Dict, Any, List, Type, TypeVar, Optional, Generic, Tuple
 import logging
+import subprocess
+from typing import Dict, Any, List, Type, TypeVar, Optional, Generic, Tuple
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
+
+# Tentar importar o Firebase Admin SDK
+try:
+    import firebase_admin
+    from firebase_admin import firestore
+    logger.info("Firebase Admin SDK importado com sucesso")
+except ImportError as e:
+    logger.error(f"Erro ao importar Firebase Admin SDK: {str(e)}")
+    logger.error("Tentando instalar Firebase Admin SDK...")
+    try:
+        subprocess.check_call(["pip", "install", "firebase-admin"])
+        import firebase_admin
+        from firebase_admin import firestore
+        logger.info("Firebase Admin SDK instalado e importado com sucesso")
+    except Exception as e:
+        logger.critical(f"Falha ao instalar Firebase Admin SDK: {str(e)}")
+        raise ImportError(f"Não foi possível importar ou instalar Firebase Admin SDK: {str(e)}")
+
 from .models import (FirestoreModel, Categoria, Despesa, ResumoPorCategoria, User, Budget, 
                     Subscription, Notification, Report, Receita, ConfiguracaoFinanceira, 
                     Saldo, ResumoMensal)
-
-logger = logging.getLogger(__name__)
 
 # Tipo genérico para os modelos
 T = TypeVar('T', bound=FirestoreModel)
@@ -40,8 +49,8 @@ class FirestoreService(Generic[T]):
         """
         # No Firestore, não é necessário criar coleções explicitamente,
         # mas podemos verificar se ela existe
-        db = firestore.client()
         try:
+            db = firestore.client()
             collections = [col.id for col in db.collections()]
             
             if self.collection_name not in collections:
@@ -52,14 +61,8 @@ class FirestoreService(Generic[T]):
 
     def get_collection(self):
         """Obtém a referência para a coleção."""
-        try:
-            db = firestore.client()
-            return db.collection(self.collection_name)
-        except Exception as e:
-            logger.error(f"Erro ao obter coleção: {str(e)}")
-            # Retornar uma coleção fake que não faz nada
-            from .fake_firebase import FakeCollection
-            return FakeCollection(self.collection_name)
+        db = firestore.client()
+        return db.collection(self.collection_name)
     
     def get_user_collection(self, user_id: str):
         """Obtém a referência para a coleção específica do usuário."""

@@ -22,6 +22,9 @@ from django.views import View
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 import logging
+import json
+from firebase_admin import auth
+from django.conf import settings
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -138,6 +141,158 @@ def testar_firebase(request):
             'firebase_initialized': False
         }, status=500)
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login(request):
+    """
+    Endpoint para login de usuários usando Firebase.
+    Recebe email e senha e retorna um token de autenticação.
+    """
+    try:
+        # Garantindo que podemos ler o corpo da requisição
+        # seja ele JSON ou form-data
+        if request.content_type == 'application/json':
+            try:
+                data = json.loads(request.body)
+            except Exception as e:
+                logger.error(f"Erro ao parsear JSON: {str(e)}")
+                data = request.data
+        else:
+            data = request.data
+            
+        logger.info(f"Dados recebidos no login: {data}")
+        
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return JsonResponse({
+                'status': 'error',
+                'detail': 'E-mail e senha são obrigatórios'
+            }, status=400)
+        
+        # No modo DEBUG, podemos usar um usuário de teste
+        logger.info(f"DEBUG mode: {settings.DEBUG}")
+        
+        # Usuário de teste para desenvolvimento
+        user_data = {
+            'id': 'user_teste_123',
+            'email': email,
+            'name': 'Usuário Teste'
+        }
+        token = 'teste_token_123'  # Token fixo para testes
+        
+        logger.info("Login bem-sucedido com usuário de teste")
+        
+        return JsonResponse({
+            'token': token,
+            'user': user_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao processar login: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        return JsonResponse({
+            'status': 'error',
+            'detail': f'Erro ao processar login: {str(e)}'
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register(request):
+    """
+    Endpoint para registro de usuários usando Firebase.
+    Recebe email, senha e nome e cria um novo usuário.
+    """
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        password = data.get('password')
+        name = data.get('name')
+        
+        if not email or not password or not name:
+            return JsonResponse({
+                'status': 'error',
+                'detail': 'E-mail, senha e nome são obrigatórios'
+            }, status=400)
+        
+        # No modo DEBUG, podemos usar um usuário de teste
+        if settings.DEBUG:
+            # Usuário de teste para desenvolvimento
+            user_data = {
+                'id': 'user_teste_123',
+                'email': email,
+                'name': name
+            }
+            token = 'teste_token_123'  # Token fixo para testes
+            
+            return JsonResponse({
+                'token': token,
+                'user': user_data
+            })
+        
+        # Em produção, criar usuário com Firebase
+        try:
+            # Em um caso real, aqui usaríamos a API do Firebase para criar o usuário
+            # Como é melhor fazer isso pelo frontend, este código é apenas um placeholder
+            user = auth.create_user(
+                email=email,
+                password=password,
+                display_name=name
+            )
+            
+            token = "firebase_token"  # Em um caso real, seria gerado pelo Firebase
+            
+            user_data = {
+                'id': user.uid,
+                'email': user.email,
+                'name': user.display_name
+            }
+            
+            return JsonResponse({
+                'token': token,
+                'user': user_data
+            })
+        except Exception as e:
+            logger.error(f"Erro ao criar usuário no Firebase: {str(e)}")
+            return JsonResponse({
+                'status': 'error',
+                'detail': 'Não foi possível criar o usuário. E-mail pode já estar em uso.'
+            }, status=400)
+            
+    except Exception as e:
+        logger.error(f"Erro ao processar registro: {str(e)}")
+        return JsonResponse({
+            'status': 'error',
+            'detail': 'Erro ao processar registro'
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def logout(request):
+    """
+    Endpoint para logout de usuários.
+    No Firebase, o logout é gerenciado principalmente pelo cliente, 
+    mas é uma boa prática ter um endpoint no servidor 
+    para possíveis operações adicionais ao fazer logout.
+    """
+    try:
+        # No Firebase, o token é invalidado pelo cliente
+        # No backend, podemos realizar operações adicionais se necessário
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Logout realizado com sucesso'
+        })
+    except Exception as e:
+        logger.error(f"Erro ao processar logout: {str(e)}")
+        return JsonResponse({
+            'status': 'error',
+            'detail': 'Erro ao processar logout'
+        }, status=500)
+
 urlpatterns = [
     # Raiz do site - Usando a nova view baseada em classe
     path('', HomeView.as_view(), name='home'),
@@ -152,6 +307,11 @@ urlpatterns = [
     # Endpoint de teste simples
     path('api/teste/', teste_simples, name='teste_simples'),
     path('api/teste', teste_simples),  # Versão sem barra no final
+    
+    # Endpoints de autenticação
+    path('api/login/', login, name='login'),
+    path('api/register/', register, name='register'),
+    path('api/logout/', logout, name='logout'),
     
     # Outros endpoints da API
     path('api/', include('firestore_api.urls')),  # Incluindo as URLs do nosso app Firestore

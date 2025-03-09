@@ -28,7 +28,14 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+# Configuração de hosts permitidos
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'viccoin-backend.onrender.com',
+    'viccoin.onrender.com',
+    'Hencheo.pythonanywhere.com',  # Substitua 'seuusuario' pelo seu nome de usuário do PythonAnywhere
+]
 
 
 # Application definition
@@ -64,11 +71,44 @@ MIDDLEWARE = [
 ]
 
 # Configuração de CORS
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000',
-    cast=Csv()
-)
+CORS_ALLOWED_ORIGINS = [
+    'https://viccoin-app.web.app',  # URL principal do seu app no Firebase Hosting
+    'https://viccoin-app.firebaseapp.com',  # URL alternativa do Firebase Hosting
+    'http://localhost:8080',  # Para testes locais com o Firebase serve
+    'http://localhost:3000',  # Para testes locais com outros servidores de desenvolvimento
+    'http://localhost:19000',  # Para Expo no desenvolvimento
+    'http://localhost:19006',  # Para Expo Web
+    'exp://192.168.0.176:8081',  # Para Expo Go em desenvolvimento
+]
+
+# Em desenvolvimento, permite todas as origens
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    # Em produção, usa a lista de origens permitidas
+    CORS_ALLOW_ALL_ORIGINS = False
+
+# Configurações adicionais de CORS
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 ROOT_URLCONF = 'core.urls'
 

@@ -113,8 +113,8 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
         # Obter o token Authorization do cabeçalho
         auth_header = request.META.get('HTTP_AUTHORIZATION')
         if not auth_header:
-            # Se estamos em desenvolvimento, criar um usuário de teste
-            if settings.DEBUG:
+            # Se estamos em desenvolvimento e FIREBASE_REAL_AUTH=False, criar um usuário de teste
+            if settings.DEBUG and not getattr(settings, 'FIREBASE_REAL_AUTH', True):
                 test_user_data = {
                     'uid': 'user_teste_123',
                     'name': 'Usuário Teste',
@@ -122,7 +122,7 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
                 }
                 firebase_user = FirebaseUser(test_user_data)
                 request.firebase_user = firebase_user
-                logger.debug("Modo DEBUG: Usando usuário de teste para autenticação")
+                logger.debug("Modo DEBUG com FIREBASE_REAL_AUTH desativado: Usando usuário de teste para autenticação")
                 return (firebase_user, 'user_teste_123')
             return None
         

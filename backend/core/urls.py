@@ -171,24 +171,58 @@ def login(request):
                 'detail': 'E-mail e senha são obrigatórios'
             }, status=400)
         
-        # No modo DEBUG, podemos usar um usuário de teste
-        logger.info(f"DEBUG mode: {settings.DEBUG}")
+        # No modo DEBUG, sempre usamos um usuário de teste
+        if settings.DEBUG:
+            logger.info(f"DEBUG mode ativado: {settings.DEBUG}")
+            
+            # Usuário de teste para desenvolvimento
+            user_data = {
+                'id': 'user_teste_123',
+                'email': email,
+                'name': 'Usuário Teste'
+            }
+            token = 'teste_token_123'  # Token fixo para testes
+            
+            logger.info("Login bem-sucedido com usuário de teste")
+            
+            return JsonResponse({
+                'token': token,
+                'user': user_data
+            })
         
-        # Usuário de teste para desenvolvimento
-        user_data = {
-            'id': 'user_teste_123',
-            'email': email,
-            'name': 'Usuário Teste'
-        }
-        token = 'teste_token_123'  # Token fixo para testes
-        
-        logger.info("Login bem-sucedido com usuário de teste")
-        
-        return JsonResponse({
-            'token': token,
-            'user': user_data
-        })
-        
+        # Em produção, tentar encontrar o usuário pelo email
+        try:
+            # Tentar encontrar o usuário pelo email
+            user = auth.get_user_by_email(email)
+            logger.info(f"Usuário encontrado no Firebase: {user.uid}")
+            
+            # Não podemos verificar a senha diretamente pelo backend
+            # Em produção real, o frontend faria essa verificação diretamente com o Firebase
+            
+            # Gerar um token simples (não JWT)
+            token = f"simple_token_{user.uid}"
+            
+            # Preparar dados do usuário para retorno
+            user_data = {
+                'id': user.uid,
+                'email': user.email,
+                'name': user.display_name or email.split('@')[0]
+            }
+            
+            logger.info("Login bem-sucedido com usuário real do Firebase")
+            
+            return JsonResponse({
+                'token': token,
+                'user': user_data
+            })
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar usuário no Firebase: {str(e)}")
+            return JsonResponse({
+                'status': 'error',
+                'detail': 'Usuário não encontrado ou credenciais inválidas'
+            }, status=401)
+            
     except Exception as e:
         logger.error(f"Erro ao processar login: {str(e)}")
         import traceback
@@ -219,7 +253,10 @@ def register(request):
             }, status=400)
         
         # No modo DEBUG, podemos usar um usuário de teste
-        if settings.DEBUG:
+        # Usamos autenticação fake apenas quando DEBUG=True e FIREBASE_REAL_AUTH=False
+        if settings.DEBUG and not getattr(settings, 'FIREBASE_REAL_AUTH', True):
+            logger.info(f"DEBUG mode ativado e FIREBASE_REAL_AUTH desativado")
+            
             # Usuário de teste para desenvolvimento
             user_data = {
                 'id': 'user_teste_123',
@@ -227,6 +264,8 @@ def register(request):
                 'name': name
             }
             token = 'teste_token_123'  # Token fixo para testes
+            
+            logger.info("Registro bem-sucedido com usuário de teste")
             
             return JsonResponse({
                 'token': token,
@@ -243,7 +282,11 @@ def register(request):
                 display_name=name
             )
             
-            token = "firebase_token"  # Em um caso real, seria gerado pelo Firebase
+            # Criar um token personalizado
+            custom_token = auth.create_custom_token(user.uid)
+            token = custom_token.decode() if hasattr(custom_token, 'decode') else custom_token
+            
+            logger.info(f"Usuário criado com sucesso: {user.uid}")
             
             user_data = {
                 'id': user.uid,

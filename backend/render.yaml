@@ -9,6 +9,8 @@ services:
         value: 5-77qdC_ZF8WbyX6jFkZEpWYLxrA0c7_NrB2fzGvqah-IFdFvDrbLWNgpdZHMSvhGsE
       - key: DEBUG
         value: false
+      - key: FIREBASE_REAL_AUTH
+        value: true
       - key: ALLOWED_HOSTS
         value: "localhost,127.0.0.1,viccoin-backend.onrender.com,viccoin.onrender.com"
       - key: CORS_ALLOWED_ORIGINS

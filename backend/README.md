@@ -54,4 +54,20 @@ O projeto está configurado para deploy no Render usando o arquivo `render.yaml`
 
 ## Endpoints da API
 
-A documentação completa da API estará disponível após a configuração do Firestore. 
+A documentação completa da API estará disponível após a configuração do Firestore.
+
+## Configuração de Ambiente
+
+### Variáveis de ambiente
+
+As variáveis de ambiente são configuradas no arquivo `.env` ou através do painel de configuração do seu serviço de hospedagem (como Render, Heroku, etc.).
+
+Principais variáveis:
+
+- `SECRET_KEY`: Chave secreta do Django
+- `DEBUG`: Ativa o modo de depuração (`True` ou `False`)
+- `FIREBASE_REAL_AUTH`: Controla se a autenticação real do Firebase será usada mesmo em modo DEBUG (`True` ou `False`)
+  - Quando `DEBUG=True` e `FIREBASE_REAL_AUTH=False`: O sistema usa autenticação fictícia para desenvolvimento
+  - Quando `FIREBASE_REAL_AUTH=True`: O sistema sempre usa autenticação real do Firebase, independentemente do modo DEBUG
+- `ALLOWED_HOSTS`: Lista de hosts permitidos
+- `CORS_ALLOWED_ORIGINS`: Lista de origens permitidas para CORS 

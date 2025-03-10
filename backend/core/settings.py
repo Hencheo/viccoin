@@ -28,6 +28,9 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# Usar autenticação real do Firebase mesmo em modo DEBUG
+FIREBASE_REAL_AUTH = config('FIREBASE_REAL_AUTH', default=True, cast=bool)
+
 # Configuração de hosts permitidos
 ALLOWED_HOSTS = [
     'localhost',
@@ -72,21 +75,20 @@ MIDDLEWARE = [
 
 # Configuração de CORS
 CORS_ALLOWED_ORIGINS = [
-    'https://viccoin-app.web.app',  # URL principal do seu app no Firebase Hosting
-    'https://viccoin-app.firebaseapp.com',  # URL alternativa do Firebase Hosting
-    'http://localhost:8080',  # Para testes locais com o Firebase serve
-    'http://localhost:3000',  # Para testes locais com outros servidores de desenvolvimento
-    'http://localhost:19000',  # Para Expo no desenvolvimento
-    'http://localhost:19006',  # Para Expo Web
-    'exp://192.168.0.176:8081',  # Para Expo Go em desenvolvimento
+    'https://viccoin-app.web.app',
+    'https://viccoin-app.firebaseapp.com',
+    'http://localhost:8080',
+    'http://localhost:3000',
+    'http://localhost:19000',
+    'http://localhost:19006',
+    'exp://192.168.0.176:8081',
+    'exp://192.168.0.176:8082',  # Adicionando a porta 8082 também
+    'https://exp.host',  # Para o Expo publicado
+    'exp://*',          # Qualquer URL de Expo
 ]
 
-# Em desenvolvimento, permite todas as origens
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    # Em produção, usa a lista de origens permitidas
-    CORS_ALLOW_ALL_ORIGINS = False
+# Em desenvolvimento e produção, permite todas as origens para garantir compatibilidade
+CORS_ALLOW_ALL_ORIGINS = True
 
 # Configurações adicionais de CORS
 CORS_ALLOW_CREDENTIALS = True
@@ -98,6 +100,8 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
+# Permitir todos os cabeçalhos nos pedidos
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -108,6 +112,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'access-control-allow-origin',
 ]
 
 ROOT_URLCONF = 'core.urls'

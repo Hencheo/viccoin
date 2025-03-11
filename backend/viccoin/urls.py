@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from .health import health_check_view
+from . import views
 
 def api_root(request):
     """
@@ -42,4 +43,11 @@ urlpatterns = [
     path('', api_root, name='api_root'),
     path('api/users/', include('users.urls', namespace='users')),
     path('health/', health_check_view, name='health_check'),
+    
+    # Novas rotas para transações financeiras
+    path('api/transacoes/despesa/', views.adicionar_despesa, name='adicionar_despesa'),
+    path('api/transacoes/ganho/', views.adicionar_ganho, name='adicionar_ganho'),
+    path('api/transacoes/salario/', views.adicionar_salario, name='adicionar_salario'),
+    path('api/transacoes/listar/', views.listar_transacoes, name='listar_transacoes'),
+    path('api/transacoes/resumo/', views.obter_resumo_financeiro, name='obter_resumo_financeiro'),
 ]

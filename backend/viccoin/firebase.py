@@ -163,6 +163,159 @@ class FirestoreClient:
         Cria uma transação com retry em caso de falha.
         """
         return self.db.transaction()
+    
+    @retry_on_exception()
+    def add_despesa(self, user_id, dados_despesa):
+        """
+        Adiciona uma nova despesa à subcoleção 'despesas' de um usuário.
+        
+        Args:
+            user_id: ID do documento do usuário
+            dados_despesa: Dicionário com os dados da despesa
+        
+        Returns:
+            ID do documento criado
+        """
+        try:
+            despesa_ref = self.collection(f"users/{user_id}/despesas").add({
+                'valor': float(dados_despesa.get('valor', 0)),
+                'data': dados_despesa.get('data'),
+                'descricao': dados_despesa.get('descricao', ''),
+                'local': dados_despesa.get('local', ''),
+                'categoria': dados_despesa.get('categoria', ''),
+                'recorrente': dados_despesa.get('recorrente', False),
+                'tipo': 'despesa'
+            })
+            
+            # Atualiza o saldo do usuário
+            usuario_ref = self.document(f"users/{user_id}")
+            usuario = usuario_ref.get()
+            
+            if usuario.exists:
+                saldo_atual = usuario.to_dict().get('saldo', 0)
+                novo_saldo = saldo_atual - float(dados_despesa.get('valor', 0))
+                usuario_ref.update({'saldo': novo_saldo})
+            
+            return despesa_ref[1].id
+        except Exception as e:
+            logger.error(f"Erro ao adicionar despesa: {str(e)}")
+            raise
+    
+    @retry_on_exception()
+    def add_ganho(self, user_id, dados_ganho):
+        """
+        Adiciona um novo ganho à subcoleção 'ganhos' de um usuário.
+        
+        Args:
+            user_id: ID do documento do usuário
+            dados_ganho: Dicionário com os dados do ganho
+        
+        Returns:
+            ID do documento criado
+        """
+        try:
+            ganho_ref = self.collection(f"users/{user_id}/ganhos").add({
+                'valor': float(dados_ganho.get('valor', 0)),
+                'data': dados_ganho.get('data'),
+                'descricao': dados_ganho.get('descricao', ''),
+                'categoria': dados_ganho.get('categoria', ''),
+                'recorrente': dados_ganho.get('recorrente', False),
+                'tipo': 'ganho'
+            })
+            
+            # Atualiza o saldo do usuário
+            usuario_ref = self.document(f"users/{user_id}")
+            usuario = usuario_ref.get()
+            
+            if usuario.exists:
+                saldo_atual = usuario.to_dict().get('saldo', 0)
+                novo_saldo = saldo_atual + float(dados_ganho.get('valor', 0))
+                usuario_ref.update({'saldo': novo_saldo})
+            
+            return ganho_ref[1].id
+        except Exception as e:
+            logger.error(f"Erro ao adicionar ganho: {str(e)}")
+            raise
+    
+    @retry_on_exception()
+    def add_salario(self, user_id, dados_salario):
+        """
+        Adiciona um novo registro de salário à subcoleção 'salario' de um usuário.
+        
+        Args:
+            user_id: ID do documento do usuário
+            dados_salario: Dicionário com os dados do salário
+        
+        Returns:
+            ID do documento criado
+        """
+        try:
+            salario_ref = self.collection(f"users/{user_id}/salario").add({
+                'valor': float(dados_salario.get('valor', 0)),
+                'data_recebimento': dados_salario.get('data_recebimento'),
+                'periodo': dados_salario.get('periodo', 'mensal'),
+                'recorrente': dados_salario.get('recorrente', True),
+                'tipo': 'salario'
+            })
+            
+            # Atualiza o saldo do usuário
+            usuario_ref = self.document(f"users/{user_id}")
+            usuario = usuario_ref.get()
+            
+            if usuario.exists:
+                saldo_atual = usuario.to_dict().get('saldo', 0)
+                novo_saldo = saldo_atual + float(dados_salario.get('valor', 0))
+                usuario_ref.update({'saldo': novo_saldo})
+            
+            return salario_ref[1].id
+        except Exception as e:
+            logger.error(f"Erro ao adicionar salário: {str(e)}")
+            raise
+    
+    @retry_on_exception()
+    def get_transacoes(self, user_id, tipo=None, limite=10):
+        """
+        Obtém todas as transações (despesas, ganhos, salários) de um usuário.
+        
+        Args:
+            user_id: ID do documento do usuário
+            tipo: Tipo de transação (despesa, ganho, salario) ou None para todas
+            limite: Número máximo de transações a retornar por tipo
+            
+        Returns:
+            Lista de transações
+        """
+        transacoes = []
+        
+        try:
+            if tipo is None or tipo == 'despesa':
+                despesas_ref = self.collection(f"users/{user_id}/despesas").limit(limite).get()
+                for despesa in despesas_ref:
+                    dados = despesa.to_dict()
+                    dados['id'] = despesa.id
+                    transacoes.append(dados)
+            
+            if tipo is None or tipo == 'ganho':
+                ganhos_ref = self.collection(f"users/{user_id}/ganhos").limit(limite).get()
+                for ganho in ganhos_ref:
+                    dados = ganho.to_dict()
+                    dados['id'] = ganho.id
+                    transacoes.append(dados)
+            
+            if tipo is None or tipo == 'salario':
+                salarios_ref = self.collection(f"users/{user_id}/salario").limit(limite).get()
+                for salario in salarios_ref:
+                    dados = salario.to_dict()
+                    dados['id'] = salario.id
+                    transacoes.append(dados)
+            
+            return transacoes
+        except Exception as e:
+            logger.error(f"Erro ao obter transações: {str(e)}")
+            raise
+
+# Singleton para acesso global
+firestore_client = FirestoreClient()
 
 # Inicializar o cliente Firestore resiliente
 try:

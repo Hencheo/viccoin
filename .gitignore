@@ -46,6 +46,7 @@ Thumbs.db
 .env.development
 .env.test
 .env.production
+.env.render
 
 # Arquivos específicos do projeto que não devem ser versionados
 viccoin-a2fa7-firebase-adminsdk-fbsvc-9e866bc6d3.json 

@@ -6,6 +6,7 @@ API do VicCoin, desenvolvida com Django e Firebase.
 
 - Django 5.1.7
 - Firebase (Firestore)
+- Autenticação JWT
 - Render (Hospedagem)
 
 ## Estrutura do Projeto
@@ -29,8 +30,42 @@ backend/
 
 - `POST /api/users/login/` - Login de usuário
   - Body: `{ "email": "email@exemplo.com", "password": "senha123" }`
+  - Retorna um token JWT para autenticação
+
+- `GET /api/users/perfil/` - Perfil do usuário autenticado
+  - Requer autenticação via token JWT
+  - Header: `Authorization: Bearer {seu_token_jwt}`
 
 - `GET /api/users/hello-world/` - Endpoint de teste
+
+## Autenticação
+
+O sistema utiliza autenticação baseada em token JWT (JSON Web Token). Após fazer login, você receberá um token que deve ser incluído no cabeçalho das requisições para endpoints protegidos.
+
+### Como usar o token:
+
+1. Faça login para obter o token:
+   ```
+   POST /api/users/login/
+   Body: { "email": "seu@email.com", "password": "sua_senha" }
+   ```
+
+2. Extraia o token da resposta de login:
+   ```json
+   {
+     "success": true,
+     "message": "Login realizado com sucesso",
+     "user": { ... },
+     "token": "seu_token_jwt"
+   }
+   ```
+
+3. Inclua o token no cabeçalho Authorization:
+   ```
+   Authorization: Bearer seu_token_jwt
+   ```
+
+4. Acesse endpoints protegidos, como `/api/users/perfil/`
 
 ## Desenvolvimento Local
 

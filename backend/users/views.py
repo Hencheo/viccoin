@@ -6,6 +6,7 @@ from django.views.decorators.http import require_http_methods
 from django.core.exceptions import ValidationError
 from .services import UserService
 from .serializers import UserSerializer
+from .auth_utils import generate_token, token_required
 
 # Create your views here.
 
@@ -85,11 +86,21 @@ def login(request):
                 'message': 'Email ou senha incorretos'
             }, status=401)
         
-        # Retornar resposta de sucesso
+        # Gerar token JWT
+        token = generate_token(user.uid, user.email)
+        
+        if token is None:
+            return JsonResponse({
+                'success': False,
+                'message': 'Erro ao gerar token de autenticação'
+            }, status=500)
+        
+        # Retornar resposta de sucesso com token
         return JsonResponse({
             'success': True,
             'message': 'Login realizado com sucesso',
-            'user': UserSerializer.serialize(user)
+            'user': UserSerializer.serialize(user),
+            'token': token
         })
         
     except ValidationError as e:
@@ -114,6 +125,39 @@ def hello_world(request):
     Endpoint simples para verificar se a API está funcionando.
     """
     return JsonResponse({'message': 'Hello, World! API VicCoin está funcionando!'})
+
+@token_required
+@require_http_methods(['GET'])
+def perfil(request):
+    """
+    Endpoint protegido que retorna o perfil do usuário autenticado.
+    Requer token de autenticação válido.
+    """
+    try:
+        # Obter ID do usuário do token (adicionado pelo decorador token_required)
+        user_id = request.user_id
+        
+        # Obter detalhes do usuário
+        user = UserService.get_user_by_id(user_id)
+        
+        if user is None:
+            return JsonResponse({
+                'success': False,
+                'message': 'Usuário não encontrado'
+            }, status=404)
+        
+        # Retornar perfil do usuário
+        return JsonResponse({
+            'success': True,
+            'user': UserSerializer.serialize(user)
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': 'Erro ao obter perfil',
+            'error': str(e)
+        }, status=500)
 
 @require_http_methods(['GET'])
 def firebase_test(request):

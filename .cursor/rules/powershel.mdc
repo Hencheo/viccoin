@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+#não utilize "&&" no powershell
+#não utiliza curl no powershell

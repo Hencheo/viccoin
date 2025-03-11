@@ -79,9 +79,36 @@ def initialize_firebase():
                     logger.error(f"Erro ao criar arquivo temporário: {str(e)}")
                     raise
         else:
-            logger.info("Usando arquivo de credenciais local")
-            # Estamos em ambiente local, usar o arquivo de credenciais
-            cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
+            logger.info("Variável de ambiente FIREBASE_CREDENTIALS_JSON não encontrada, tentando arquivo local")
+            
+            # Verificar primeiro se o arquivo está no diretório raiz do projeto
+            root_creds_path = os.path.join(os.path.dirname(settings.BASE_DIR), 'viccoin-a2fa7-firebase-adminsdk-fbsvc-9e866bc6d3.json')
+            if os.path.exists(root_creds_path):
+                logger.info(f"Usando arquivo de credenciais encontrado em: {root_creds_path}")
+                cred = credentials.Certificate(root_creds_path)
+            else:
+                # Usar o caminho configurado nas settings como fallback
+                creds_path = settings.FIREBASE_CREDENTIALS_PATH
+                logger.info(f"Tentando usar arquivo de credenciais configurado: {creds_path}")
+                
+                if os.path.exists(creds_path):
+                    cred = credentials.Certificate(creds_path)
+                else:
+                    # Tentar outros caminhos comuns
+                    alternative_paths = [
+                        os.path.join(settings.BASE_DIR, 'firebase-credentials.json'),
+                        os.path.join(settings.BASE_DIR, 'firebase.json'),
+                        os.path.join(settings.BASE_DIR.parent, 'firebase-credentials.json')
+                    ]
+                    
+                    for path in alternative_paths:
+                        if os.path.exists(path):
+                            logger.info(f"Encontrado arquivo de credenciais alternativo em: {path}")
+                            cred = credentials.Certificate(path)
+                            break
+                    else:
+                        logger.error("Não foi possível encontrar o arquivo de credenciais do Firebase.")
+                        raise FileNotFoundError(f"Arquivo de credenciais do Firebase não encontrado em: {creds_path} nem nos caminhos alternativos")
         
         try:    
             app = firebase_admin.initialize_app(cred)

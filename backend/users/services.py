@@ -1,6 +1,11 @@
 from viccoin.firebase import db
 from .models import User
-import hashlib
+from .auth_utils import hash_password, check_password
+from .auth_migration import check_sha256_password, migrate_password_if_needed
+import logging
+
+# Configurar logger
+logger = logging.getLogger(__name__)
 
 class UserService:
     """
@@ -31,8 +36,8 @@ class UserService:
         if len(results) > 0:
             raise ValueError('Email já está em uso')
         
-        # Criar hash da senha
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        # Criar hash da senha usando bcrypt
+        password_hash = hash_password(password)
         
         # Criar novo usuário
         new_user = User(email=email, nome=nome, saldo=0.0)
@@ -59,9 +64,6 @@ class UserService:
         Returns:
             User or None: Objeto User se as credenciais forem válidas, None caso contrário.
         """
-        # Criar hash da senha
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        
         # Buscar usuário por email
         users_ref = db.collection('users')
         query = users_ref.where('email', '==', email).limit(1)
@@ -70,15 +72,28 @@ class UserService:
         if len(results) == 0:
             return None
         
-        # Verificar senha
+        # Obter dados do usuário
+        user_id = results[0].id
         user_data = results[0].to_dict()
-        if user_data.get('password_hash') != password_hash:
-            return None
+        stored_password_hash = user_data.get('password_hash')
         
-        # Criar objeto User
-        user = User.from_dict(user_data, uid=results[0].id)
+        # Primeiro, tentar verificar com bcrypt
+        if check_password(password, stored_password_hash):
+            # Autenticação bem-sucedida com bcrypt
+            return User.from_dict(user_data, uid=user_id)
         
-        return user
+        # Se falhar, tentar com SHA-256 (para compatibilidade com senhas antigas)
+        if check_sha256_password(password, stored_password_hash):
+            # Autenticação bem-sucedida com SHA-256
+            logger.info(f"Usuário {user_id} ainda usa hash SHA-256, migrando para bcrypt")
+            
+            # Migrar para bcrypt
+            migrate_password_if_needed(user_id, password, stored_password_hash)
+            
+            return User.from_dict(user_data, uid=user_id)
+        
+        # Autenticação falhou com ambos os métodos
+        return None
     
     @staticmethod
     def get_user_by_id(uid):

@@ -21,7 +21,7 @@ from .health import health_check_view
 
 def api_root(request):
     """
-    View de raiz da API.
+    Endpoint raiz da API que lista os endpoints disponíveis.
     """
     return JsonResponse({
         'message': 'Bem-vindo à API do VicCoin!',

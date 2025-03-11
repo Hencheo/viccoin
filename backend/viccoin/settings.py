@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 import os
 from decouple import config, Csv
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -126,7 +127,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Configurações do Firebase
 FIREBASE_CREDENTIALS_PATH = config('FIREBASE_CREDENTIALS_PATH', 
-                                  default=os.path.join(BASE_DIR.parent, 'viccoin-a2fa7-firebase-adminsdk-fbsvc-9e866bc6d3.json'))
+                                  default=os.path.join(BASE_DIR.parent, 'firebase-credentials.json'))
 
 # Configurações de Logging
 LOGGING = {
@@ -172,6 +173,15 @@ LOGGING = {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
+        },
+    },
+    # Adicionar filtros para evitar logging de informações sensíveis
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
         },
     },
 }

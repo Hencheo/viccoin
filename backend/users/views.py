@@ -6,12 +6,7 @@ from django.views.decorators.http import require_http_methods
 from django.core.exceptions import ValidationError
 from .services import UserService
 from .serializers import UserSerializer
-from viccoin.firebase import db
-import datetime
-import logging
-
-# Configurar logger
-logger = logging.getLogger(__name__)
+from .auth_utils import generate_token, token_required
 
 # Create your views here.
 
@@ -59,7 +54,6 @@ def register(request):
         
     except Exception as e:
         # Erro interno
-        logger.error(f"Erro ao registrar usuário: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
             'message': 'Erro interno do servidor',
@@ -92,11 +86,21 @@ def login(request):
                 'message': 'Email ou senha incorretos'
             }, status=401)
         
-        # Retornar resposta de sucesso
+        # Gerar token JWT
+        token = generate_token(user.uid, user.email)
+        
+        if token is None:
+            return JsonResponse({
+                'success': False,
+                'message': 'Erro ao gerar token de autenticação'
+            }, status=500)
+        
+        # Retornar resposta de sucesso com token
         return JsonResponse({
             'success': True,
             'message': 'Login realizado com sucesso',
-            'user': UserSerializer.serialize(user)
+            'user': UserSerializer.serialize(user),
+            'token': token
         })
         
     except ValidationError as e:
@@ -109,7 +113,6 @@ def login(request):
         
     except Exception as e:
         # Erro interno
-        logger.error(f"Erro ao fazer login: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
             'message': 'Erro interno do servidor',
@@ -119,77 +122,125 @@ def login(request):
 @require_http_methods(['GET'])
 def hello_world(request):
     """
-    View de teste para verificar se a API está funcionando.
+    Endpoint simples para verificar se a API está funcionando.
     """
-    return JsonResponse({
-        'message': 'Hello, World! API VicCoin está funcionando!'
-    })
+    return JsonResponse({'message': 'Hello, World! API VicCoin está funcionando!'})
+
+@token_required
+@require_http_methods(['GET'])
+def perfil(request):
+    """
+    Endpoint protegido que retorna o perfil do usuário autenticado.
+    Requer token de autenticação válido.
+    """
+    try:
+        # Obter ID do usuário do token (adicionado pelo decorador token_required)
+        user_id = request.user_id
+        
+        # Obter detalhes do usuário
+        user = UserService.get_user_by_id(user_id)
+        
+        if user is None:
+            return JsonResponse({
+                'success': False,
+                'message': 'Usuário não encontrado'
+            }, status=404)
+        
+        # Retornar perfil do usuário
+        return JsonResponse({
+            'success': True,
+            'user': UserSerializer.serialize(user)
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': 'Erro ao obter perfil',
+            'error': str(e)
+        }, status=500)
 
 @require_http_methods(['GET'])
 def firebase_test(request):
     """
-    View de teste para verificar a comunicação com o Firebase.
-    Realiza operações básicas de leitura e escrita no Firestore.
+    Endpoint para testar a conexão com o Firebase.
+    Realiza operações básicas de leitura e escrita para verificar a funcionalidade.
     """
-    results = {
-        'success': True,
+    import json
+    import datetime
+    import logging
+    from viccoin.firebase import db
+    
+    # Configurar logger
+    logger = logging.getLogger(__name__)
+    
+    response = {
         'timestamp': datetime.datetime.now().isoformat(),
-        'tests': {}
+        'tests': {
+            'connection': {'status': 'pending', 'message': ''},
+            'write': {'status': 'pending', 'message': ''},
+            'read': {'status': 'pending', 'message': ''},
+            'query': {'status': 'pending', 'message': ''}
+        },
+        'overall_status': 'pending'
     }
     
     try:
-        # Teste 1: Verificar conexão com o Firestore
-        results['tests']['connection'] = {
-            'status': 'success',
-            'message': 'Conexão com Firebase estabelecida'
-        }
+        # Teste 1: Verificar conexão
+        if db is not None:
+            response['tests']['connection']['status'] = 'success'
+            response['tests']['connection']['message'] = 'Conexão com Firestore estabelecida'
+            logger.info("Teste de Firebase: Conexão estabelecida")
+        else:
+            response['tests']['connection']['status'] = 'error'
+            response['tests']['connection']['message'] = 'Falha ao conectar com Firestore'
+            logger.error("Teste de Firebase: Falha na conexão")
+            raise ValueError("Cliente Firestore não inicializado")
         
         # Teste 2: Operação de escrita
-        test_doc_ref = db.collection('firebase_tests').document('test_connection')
+        test_doc_ref = db.collection('firebase_tests').document('test_' + datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
         test_data = {
             'timestamp': datetime.datetime.now().isoformat(),
-            'environment': 'render',
-            'test_id': f"test_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+            'test_value': 'test_data',
+            'random_number': datetime.datetime.now().microsecond
         }
-        
         test_doc_ref.set(test_data)
-        results['tests']['write_operation'] = {
-            'status': 'success',
-            'message': 'Operação de escrita bem-sucedida',
-            'data': test_data
-        }
+        response['tests']['write']['status'] = 'success'
+        response['tests']['write']['message'] = f'Documento criado com sucesso: {test_doc_ref.id}'
+        logger.info(f"Teste de Firebase: Escrita bem-sucedida em {test_doc_ref.id}")
         
         # Teste 3: Operação de leitura
-        read_result = test_doc_ref.get().to_dict()
-        results['tests']['read_operation'] = {
-            'status': 'success',
-            'message': 'Operação de leitura bem-sucedida',
-            'data': read_result
-        }
+        read_data = test_doc_ref.get().to_dict()
+        if read_data and read_data.get('test_value') == 'test_data':
+            response['tests']['read']['status'] = 'success'
+            response['tests']['read']['message'] = 'Leitura de documento bem-sucedida'
+            logger.info("Teste de Firebase: Leitura bem-sucedida")
+        else:
+            response['tests']['read']['status'] = 'error'
+            response['tests']['read']['message'] = 'Falha ao ler documento ou dados incorretos'
+            logger.error("Teste de Firebase: Falha na leitura")
         
-        # Teste 4: Consulta com filtro
-        query = db.collection('firebase_tests').where('environment', '==', 'render').limit(5).get()
-        query_results = [doc.to_dict() for doc in query]
-        results['tests']['query_operation'] = {
-            'status': 'success',
-            'message': 'Operação de consulta bem-sucedida',
-            'count': len(query_results)
-        }
+        # Teste 4: Operação de consulta
+        query_result = db.collection('firebase_tests').where('test_value', '==', 'test_data').limit(10).get()
+        count = len(query_result)
+        response['tests']['query']['status'] = 'success'
+        response['tests']['query']['message'] = f'Consulta retornou {count} documentos'
+        logger.info(f"Teste de Firebase: Consulta retornou {count} documentos")
         
-        return JsonResponse(results)
+        # Definir status geral
+        all_success = all(test['status'] == 'success' for test in response['tests'].values())
+        response['overall_status'] = 'success' if all_success else 'error'
         
     except Exception as e:
-        logger.error(f"Erro no teste do Firebase: {str(e)}", exc_info=True)
+        logger.error(f"Erro no teste de Firebase: {str(e)}")
+        # Atualizar status dos testes que ainda estão pendentes
+        for test_name, test_data in response['tests'].items():
+            if test_data['status'] == 'pending':
+                test_data['status'] = 'error'
+                test_data['message'] = 'Teste não executado devido a erro anterior'
         
-        # Se houver erro, atualizar o status geral
-        results['success'] = False
-        results['error'] = str(e)
-        
-        # Adicionar informação sobre o erro ao teste específico que falhou
-        if 'connection' not in results['tests']:
-            results['tests']['connection'] = {
-                'status': 'error',
-                'message': f'Falha na conexão com Firebase: {str(e)}'
-            }
-        
-        return JsonResponse(results, status=500)
+        response['overall_status'] = 'error'
+        response['error'] = str(e)
+    
+    # Retornar resposta com código de status apropriado
+    status_code = 200 if response['overall_status'] == 'success' else 500
+    return JsonResponse(response, status=status_code)

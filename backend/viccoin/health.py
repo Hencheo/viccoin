@@ -9,93 +9,99 @@ from django.conf import settings
 # Configurar logger
 logger = logging.getLogger(__name__)
 
-# Cache para armazenar o resultado do último teste
+# Dicionário para armazenar o status de saúde
 health_status = {
     'last_check': None,
     'firebase': {
         'status': 'unknown',
         'last_success': None,
+        'last_failure': None,
         'error': None
     },
     'system': {
         'status': 'ok',
+        'uptime': 0,
         'start_time': datetime.datetime.now().isoformat()
     }
 }
 
-# Configuração
-CHECK_INTERVAL = 60  # segundos
+# Intervalo de verificação em segundos
+CHECK_INTERVAL = 60
 
 def check_firebase_connection():
     """
-    Verifica a conexão com o Firebase e atualiza o status.
+    Verifica a conexão com o Firebase e atualiza o status de saúde.
     """
     try:
-        # Tentar realizar uma operação simples para verificar a conexão
-        test_ref = db.collection('health_checks').document('connection')
-        test_ref.set({
-            'timestamp': datetime.datetime.now().isoformat(),
-            'environment': 'render' if not settings.DEBUG else 'development'
-        })
-        
-        # Ler o documento para confirmar a operação
-        test_ref.get()
-        
-        # Atualizar status
-        health_status['firebase']['status'] = 'ok'
-        health_status['firebase']['last_success'] = datetime.datetime.now().isoformat()
-        health_status['firebase']['error'] = None
-        
-        return True
+        # Tentar acessar o Firestore
+        if db:
+            # Tentar uma operação simples
+            db.collection('health_checks').document('last_check').set({
+                'timestamp': datetime.datetime.now().isoformat(),
+                'status': 'ok'
+            })
+            
+            # Atualizar status
+            health_status['firebase']['status'] = 'ok'
+            health_status['firebase']['last_success'] = datetime.datetime.now().isoformat()
+            health_status['firebase']['error'] = None
+            logger.info("Verificação de saúde do Firebase: OK")
+            return True
     except Exception as e:
-        logger.error(f"Erro na verificação de saúde do Firebase: {str(e)}", exc_info=True)
-        
-        # Atualizar status
+        # Registrar falha
         health_status['firebase']['status'] = 'error'
+        health_status['firebase']['last_failure'] = datetime.datetime.now().isoformat()
         health_status['firebase']['error'] = str(e)
-        
+        logger.error(f"Erro na verificação de saúde do Firebase: {str(e)}")
         return False
 
 def periodic_health_check():
     """
-    Executa verificações de saúde periodicamente em background.
+    Executa verificações de saúde periodicamente em segundo plano.
     """
     while True:
         try:
-            # Atualizar timestamp
+            # Atualizar timestamp da última verificação
             health_status['last_check'] = datetime.datetime.now().isoformat()
             
             # Verificar Firebase
             check_firebase_connection()
             
-            # Aguardar próxima verificação
+            # Atualizar uptime
+            start_time = datetime.datetime.fromisoformat(health_status['system']['start_time'])
+            now = datetime.datetime.now()
+            health_status['system']['uptime'] = (now - start_time).total_seconds()
+            
+            # Aguardar até a próxima verificação
             time.sleep(CHECK_INTERVAL)
         except Exception as e:
-            logger.error(f"Erro na verificação periódica de saúde: {str(e)}", exc_info=True)
+            logger.error(f"Erro na verificação periódica de saúde: {str(e)}")
             time.sleep(CHECK_INTERVAL)
 
-# Iniciar verificação periódica em background
+# Iniciar thread de verificação periódica
 health_check_thread = threading.Thread(target=periodic_health_check, daemon=True)
 health_check_thread.start()
 
 def health_check_view(request):
     """
-    View para verificar a saúde da aplicação.
+    View para retornar o status de saúde atual.
     """
-    # Executar verificação na hora se o último check for muito antigo
-    if health_status['last_check'] is None:
-        health_status['last_check'] = datetime.datetime.now().isoformat()
+    # Executar uma verificação imediata se solicitado
+    if request.GET.get('check') == 'true':
         check_firebase_connection()
     
-    status_code = 200
-    if health_status['firebase']['status'] != 'ok':
-        status_code = 500
-    
-    return JsonResponse({
+    # Preparar resposta
+    response = {
         'timestamp': datetime.datetime.now().isoformat(),
+        'last_check': health_status['last_check'],
         'services': {
             'firebase': health_status['firebase'],
             'system': health_status['system']
         },
-        'last_check': health_status['last_check']
-    }, status=status_code) 
+        'status': 'ok' if health_status['firebase']['status'] == 'ok' else 'error'
+    }
+    
+    # Definir código de status HTTP com base no status geral
+    status_code = 200 if response['status'] == 'ok' else 500
+    
+    return JsonResponse(response, status=status_code) 

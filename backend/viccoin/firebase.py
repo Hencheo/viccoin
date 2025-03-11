@@ -98,46 +98,50 @@ class FirestoreClient:
         self._initialize()
     
     def _initialize(self):
-        """Inicializa o cliente do Firestore."""
-        if self.db is None:
-            try:
-                self.db = initialize_firebase()
-                logger.info("Cliente Firestore inicializado com sucesso")
-            except Exception as e:
-                logger.error(f"Erro ao inicializar cliente Firestore: {str(e)}")
-                raise
+        """
+        Inicializa o cliente Firestore com tratamento de erros.
+        """
+        try:
+            self.db = initialize_firebase()
+            logger.info("Cliente Firestore inicializado com sucesso")
+        except Exception as e:
+            logger.error(f"Erro ao inicializar cliente Firestore: {str(e)}")
+            # Não propagar o erro para evitar falha na inicialização da aplicação
+            # O cliente tentará novamente nas operações subsequentes
     
     @retry_on_exception()
     def collection(self, collection_path):
-        """Wrapper para db.collection com retry."""
-        self._initialize()
+        """
+        Acessa uma coleção com retry em caso de falha.
+        """
         return self.db.collection(collection_path)
     
     @retry_on_exception()
     def document(self, document_path):
-        """Wrapper para db.document com retry."""
-        self._initialize()
+        """
+        Acessa um documento com retry em caso de falha.
+        """
         return self.db.document(document_path)
     
     @retry_on_exception()
     def batch(self):
-        """Wrapper para db.batch com retry."""
-        self._initialize()
+        """
+        Cria um batch com retry em caso de falha.
+        """
         return self.db.batch()
     
     @retry_on_exception()
     def transaction(self):
-        """Wrapper para db.transaction com retry."""
-        self._initialize()
+        """
+        Cria uma transação com retry em caso de falha.
+        """
         return self.db.transaction()
 
-# Criar uma instância do cliente Firestore resiliente
+# Inicializar o cliente Firestore resiliente
 try:
-    db_client = FirestoreClient()
-    db = db_client.db
+    db = initialize_firebase()
     logger.info("Cliente Firestore inicializado com sucesso")
 except Exception as e:
-    logger.error(f"Erro ao inicializar cliente Firestore: {str(e)}")
-    # Não vamos re-levantar a exceção aqui para evitar quebrar a inicialização do Django
-    # Mas precisamos definir db para evitar erros de referência
+    logger.error(f"Erro ao inicializar Firebase: {str(e)}")
+    # Definir db como None para evitar erros de referência
     db = None 

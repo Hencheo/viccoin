@@ -129,6 +129,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 FIREBASE_CREDENTIALS_PATH = config('FIREBASE_CREDENTIALS_PATH', 
                                   default=os.path.join(BASE_DIR.parent, 'firebase-credentials.json'))
 
+# Verificar se estamos no ambiente Render
+IS_RENDER = config('RENDER', default=False, cast=bool)
+
 # Configurações de Logging
 LOGGING = {
     'version': 1,
@@ -149,33 +152,24 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/viccoin.log'),
-            'maxBytes': 1024*1024*5,  # 5 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
-        },
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
         'viccoin': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': True,
         },
         'users': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': True,
         },
     },
-    # Adicionar filtros para evitar logging de informações sensíveis
     'filters': {
         'require_debug_false': {
             '()': 'django.utils.log.RequireDebugFalse',
@@ -185,3 +179,25 @@ LOGGING = {
         },
     },
 }
+
+# Adicionar handler de arquivo apenas em ambiente de desenvolvimento
+if not IS_RENDER:
+    # Garantir que o diretório de logs existe
+    logs_dir = os.path.join(BASE_DIR, 'logs')
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+        
+    # Adicionar handler de arquivo
+    LOGGING['handlers']['file'] = {
+        'level': 'INFO',
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': os.path.join(logs_dir, 'viccoin.log'),
+        'maxBytes': 1024*1024*5,  # 5 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+    }
+    
+    # Atualizar loggers para usar o handler de arquivo
+    LOGGING['loggers']['django']['handlers'].append('file')
+    LOGGING['loggers']['viccoin']['handlers'].append('file')
+    LOGGING['loggers']['users']['handlers'].append('file')

@@ -34,6 +34,14 @@ def api_root(request):
                 'hello_world': '/api/users/hello-world/',
                 'firebase_test': '/api/users/firebase-test/',
             },
+            'transacoes': {
+                'despesa': '/api/transacoes/despesa/',
+                'ganho': '/api/transacoes/ganho/',
+                'salario': '/api/transacoes/salario/',
+                'listar': '/api/transacoes/listar/',
+                'resumo': '/api/transacoes/resumo/',
+                'relatorio': '/api/transacoes/relatorio/',
+            },
             'health': '/health/',
         }
     })
@@ -50,4 +58,5 @@ urlpatterns = [
     path('api/transacoes/salario/', views.adicionar_salario, name='adicionar_salario'),
     path('api/transacoes/listar/', views.listar_transacoes, name='listar_transacoes'),
     path('api/transacoes/resumo/', views.obter_resumo_financeiro, name='obter_resumo_financeiro'),
+    path('api/transacoes/relatorio/', views.relatorio_por_periodo, name='relatorio_por_periodo'),
 ]

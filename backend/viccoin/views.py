@@ -198,4 +198,89 @@ def obter_resumo_financeiro(request):
         return JsonResponse({
             'success': False,
             'message': f'Erro ao obter resumo financeiro: {str(e)}'
+        }, status=500)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def relatorio_por_periodo(request):
+    """
+    Obtém um relatório financeiro filtrado por período.
+    
+    Parâmetros de consulta:
+    - periodo: 'semanal', 'mensal', 'anual' (opcional)
+    - data_inicio: Data inicial no formato 'YYYY-MM-DD' (opcional)
+    - data_fim: Data final no formato 'YYYY-MM-DD' (opcional)
+    - tipo: Tipo de transação ('despesa', 'ganho', 'salario') (opcional)
+    - limite: Número máximo de transações por tipo (opcional, padrão 100)
+    """
+    user_id = get_user_id_from_token(request)
+    if not user_id:
+        return JsonResponse({'success': False, 'message': 'Usuário não autenticado'}, status=401)
+    
+    try:
+        # Obter parâmetros da consulta
+        periodo = request.GET.get('periodo')
+        data_inicio = request.GET.get('data_inicio')
+        data_fim = request.GET.get('data_fim')
+        tipo = request.GET.get('tipo')
+        
+        # Obter limite (com valor padrão)
+        try:
+            limite = int(request.GET.get('limite', 100))
+        except ValueError:
+            limite = 100
+        
+        # Validar período
+        if periodo and periodo not in ['semanal', 'mensal', 'anual']:
+            return JsonResponse({
+                'success': False,
+                'message': "Período inválido. Use 'semanal', 'mensal' ou 'anual'."
+            }, status=400)
+        
+        # Validar tipo
+        if tipo and tipo not in ['despesa', 'ganho', 'salario']:
+            return JsonResponse({
+                'success': False,
+                'message': "Tipo inválido. Use 'despesa', 'ganho' ou 'salario'."
+            }, status=400)
+        
+        # Validar datas (formato YYYY-MM-DD)
+        if data_inicio:
+            try:
+                datetime.datetime.strptime(data_inicio, '%Y-%m-%d')
+            except ValueError:
+                return JsonResponse({
+                    'success': False, 
+                    'message': "Formato de data_inicio inválido. Use o formato 'YYYY-MM-DD'."
+                }, status=400)
+        
+        if data_fim:
+            try:
+                datetime.datetime.strptime(data_fim, '%Y-%m-%d')
+            except ValueError:
+                return JsonResponse({
+                    'success': False, 
+                    'message': "Formato de data_fim inválido. Use o formato 'YYYY-MM-DD'."
+                }, status=400)
+        
+        # Obter relatório
+        logger.info(f"Gerando relatório para usuário {user_id} (período: {periodo}, de {data_inicio} até {data_fim})")
+        resultado = firestore_client.get_transacoes_por_periodo(
+            user_id, 
+            periodo=periodo, 
+            data_inicio=data_inicio, 
+            data_fim=data_fim, 
+            tipo=tipo, 
+            limite=limite
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'relatorio': resultado
+        })
+    except Exception as e:
+        logger.error(f"Erro ao gerar relatório: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Erro ao gerar relatório: {str(e)}'
         }, status=500) 

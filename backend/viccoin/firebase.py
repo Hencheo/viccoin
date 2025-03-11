@@ -7,6 +7,7 @@ import tempfile
 import logging
 import time
 from functools import wraps
+import datetime
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -312,6 +313,129 @@ class FirestoreClient:
             return transacoes
         except Exception as e:
             logger.error(f"Erro ao obter transações: {str(e)}")
+            raise
+
+    @retry_on_exception()
+    def get_transacoes_por_periodo(self, user_id, periodo=None, data_inicio=None, data_fim=None, tipo=None, limite=100):
+        """
+        Obtém transações de um usuário filtradas por período e/ou intervalo de datas.
+        
+        Args:
+            user_id: ID do documento do usuário
+            periodo: Período desejado ('semanal', 'mensal', 'anual') ou None
+            data_inicio: Data inicial para filtro (formato 'YYYY-MM-DD')
+            data_fim: Data final para filtro (formato 'YYYY-MM-DD')
+            tipo: Tipo de transação ('despesa', 'ganho', 'salario') ou None para todas
+            limite: Número máximo de transações a retornar por tipo
+            
+        Returns:
+            Lista de transações filtradas e estatísticas agregadas
+        """
+        transacoes = []
+        
+        try:
+            # Definir automaticamente intervalos de data com base no período, se não fornecidos
+            if periodo and not (data_inicio and data_fim):
+                hoje = datetime.datetime.now().date()
+                if periodo == 'semanal':
+                    # Início da semana (segunda-feira)
+                    dia_semana = hoje.weekday()
+                    data_inicio = (hoje - datetime.timedelta(days=dia_semana)).strftime('%Y-%m-%d')
+                    data_fim = (hoje + datetime.timedelta(days=6-dia_semana)).strftime('%Y-%m-%d')
+                elif periodo == 'mensal':
+                    # Início do mês
+                    data_inicio = hoje.replace(day=1).strftime('%Y-%m-%d')
+                    # Fim do mês (trata diferentes números de dias por mês)
+                    if hoje.month == 12:
+                        data_fim = hoje.replace(year=hoje.year+1, month=1, day=1)
+                    else:
+                        data_fim = hoje.replace(month=hoje.month+1, day=1)
+                    data_fim = (data_fim - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                elif periodo == 'anual':
+                    # Início do ano
+                    data_inicio = hoje.replace(month=1, day=1).strftime('%Y-%m-%d')
+                    # Fim do ano
+                    data_fim = hoje.replace(month=12, day=31).strftime('%Y-%m-%d')
+            
+            logger.info(f"Consultando transações de {data_inicio} até {data_fim}")
+            
+            # Obter transações de cada tipo com filtros de data
+            if tipo is None or tipo == 'despesa':
+                despesas_query = self.collection(f"users/{user_id}/despesas")
+                if data_inicio:
+                    despesas_query = despesas_query.where('data', '>=', data_inicio)
+                if data_fim:
+                    despesas_query = despesas_query.where('data', '<=', data_fim)
+                despesas_query = despesas_query.limit(limite)
+                despesas_ref = despesas_query.get()
+                
+                for despesa in despesas_ref:
+                    dados = despesa.to_dict()
+                    dados['id'] = despesa.id
+                    transacoes.append(dados)
+            
+            if tipo is None or tipo == 'ganho':
+                ganhos_query = self.collection(f"users/{user_id}/ganhos")
+                if data_inicio:
+                    ganhos_query = ganhos_query.where('data', '>=', data_inicio)
+                if data_fim:
+                    ganhos_query = ganhos_query.where('data', '<=', data_fim)
+                ganhos_query = ganhos_query.limit(limite)
+                ganhos_ref = ganhos_query.get()
+                
+                for ganho in ganhos_ref:
+                    dados = ganho.to_dict()
+                    dados['id'] = ganho.id
+                    transacoes.append(dados)
+            
+            if tipo is None or tipo == 'salario':
+                salarios_query = self.collection(f"users/{user_id}/salario")
+                if data_inicio:
+                    salarios_query = salarios_query.where('data_recebimento', '>=', data_inicio)
+                if data_fim:
+                    salarios_query = salarios_query.where('data_recebimento', '<=', data_fim)
+                salarios_query = salarios_query.limit(limite)
+                salarios_ref = salarios_query.get()
+                
+                for salario in salarios_ref:
+                    dados = salario.to_dict()
+                    dados['id'] = salario.id
+                    transacoes.append(dados)
+            
+            # Calcular estatísticas agregadas
+            total_despesas = sum(t['valor'] for t in transacoes if t.get('tipo') == 'despesa')
+            total_ganhos = sum(t['valor'] for t in transacoes if t.get('tipo') in ['ganho', 'salario'])
+            saldo_periodo = total_ganhos - total_despesas
+            
+            # Agrupar por categoria
+            categorias = {}
+            for t in transacoes:
+                categoria = t.get('categoria', 'Sem categoria')
+                if categoria not in categorias:
+                    categorias[categoria] = {
+                        'despesas': 0,
+                        'ganhos': 0
+                    }
+                
+                if t.get('tipo') == 'despesa':
+                    categorias[categoria]['despesas'] += float(t.get('valor', 0))
+                else:
+                    categorias[categoria]['ganhos'] += float(t.get('valor', 0))
+            
+            return {
+                'transacoes': transacoes,
+                'total_despesas': total_despesas,
+                'total_ganhos': total_ganhos,
+                'saldo_periodo': saldo_periodo,
+                'categorias': categorias,
+                'periodo': {
+                    'tipo': periodo,
+                    'data_inicio': data_inicio,
+                    'data_fim': data_fim
+                }
+            }
+        except Exception as e:
+            logger.error(f"Erro ao obter transações por período: {str(e)}")
             raise
 
 # Singleton para acesso global

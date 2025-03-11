@@ -5,10 +5,39 @@ import os
 import json
 import tempfile
 import logging
+import time
+from functools import wraps
 
 # Configurar logger
 logger = logging.getLogger(__name__)
 
+# Configuração de retry
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # segundos
+
+def retry_on_exception(max_retries=MAX_RETRIES, delay=RETRY_DELAY):
+    """
+    Decorador para tentar novamente uma operação em caso de erro.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    retries += 1
+                    if retries >= max_retries:
+                        logger.error(f"Falha após {max_retries} tentativas: {str(e)}", exc_info=True)
+                        raise
+                    
+                    logger.warning(f"Tentativa {retries} falhou: {str(e)}. Tentando novamente em {delay}s...")
+                    time.sleep(delay)
+        return wrapper
+    return decorator
+
+@retry_on_exception()
 def initialize_firebase():
     """
     Inicializa o SDK do Firebase Admin com as credenciais fornecidas.
@@ -62,9 +91,50 @@ def initialize_firebase():
             logger.error(f"Erro na inicialização do Firebase: {str(e)}")
             raise
 
-# Criar uma instância do cliente Firestore
+# Classe para encapsular operações do Firestore com retry
+class FirestoreClient:
+    def __init__(self):
+        self.db = None
+        self._initialize()
+    
+    def _initialize(self):
+        """Inicializa o cliente do Firestore."""
+        if self.db is None:
+            try:
+                self.db = initialize_firebase()
+                logger.info("Cliente Firestore inicializado com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao inicializar cliente Firestore: {str(e)}")
+                raise
+    
+    @retry_on_exception()
+    def collection(self, collection_path):
+        """Wrapper para db.collection com retry."""
+        self._initialize()
+        return self.db.collection(collection_path)
+    
+    @retry_on_exception()
+    def document(self, document_path):
+        """Wrapper para db.document com retry."""
+        self._initialize()
+        return self.db.document(document_path)
+    
+    @retry_on_exception()
+    def batch(self):
+        """Wrapper para db.batch com retry."""
+        self._initialize()
+        return self.db.batch()
+    
+    @retry_on_exception()
+    def transaction(self):
+        """Wrapper para db.transaction com retry."""
+        self._initialize()
+        return self.db.transaction()
+
+# Criar uma instância do cliente Firestore resiliente
 try:
-    db = initialize_firebase()
+    db_client = FirestoreClient()
+    db = db_client.db
     logger.info("Cliente Firestore inicializado com sucesso")
 except Exception as e:
     logger.error(f"Erro ao inicializar cliente Firestore: {str(e)}")

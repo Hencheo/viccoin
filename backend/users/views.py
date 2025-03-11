@@ -6,6 +6,12 @@ from django.views.decorators.http import require_http_methods
 from django.core.exceptions import ValidationError
 from .services import UserService
 from .serializers import UserSerializer
+from viccoin.firebase import db
+import datetime
+import logging
+
+# Configurar logger
+logger = logging.getLogger(__name__)
 
 # Create your views here.
 
@@ -53,6 +59,7 @@ def register(request):
         
     except Exception as e:
         # Erro interno
+        logger.error(f"Erro ao registrar usuário: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
             'message': 'Erro interno do servidor',
@@ -102,6 +109,7 @@ def login(request):
         
     except Exception as e:
         # Erro interno
+        logger.error(f"Erro ao fazer login: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
             'message': 'Erro interno do servidor',
@@ -116,3 +124,72 @@ def hello_world(request):
     return JsonResponse({
         'message': 'Hello, World! API VicCoin está funcionando!'
     })
+
+@require_http_methods(['GET'])
+def firebase_test(request):
+    """
+    View de teste para verificar a comunicação com o Firebase.
+    Realiza operações básicas de leitura e escrita no Firestore.
+    """
+    results = {
+        'success': True,
+        'timestamp': datetime.datetime.now().isoformat(),
+        'tests': {}
+    }
+    
+    try:
+        # Teste 1: Verificar conexão com o Firestore
+        results['tests']['connection'] = {
+            'status': 'success',
+            'message': 'Conexão com Firebase estabelecida'
+        }
+        
+        # Teste 2: Operação de escrita
+        test_doc_ref = db.collection('firebase_tests').document('test_connection')
+        test_data = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'environment': 'render',
+            'test_id': f"test_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        }
+        
+        test_doc_ref.set(test_data)
+        results['tests']['write_operation'] = {
+            'status': 'success',
+            'message': 'Operação de escrita bem-sucedida',
+            'data': test_data
+        }
+        
+        # Teste 3: Operação de leitura
+        read_result = test_doc_ref.get().to_dict()
+        results['tests']['read_operation'] = {
+            'status': 'success',
+            'message': 'Operação de leitura bem-sucedida',
+            'data': read_result
+        }
+        
+        # Teste 4: Consulta com filtro
+        query = db.collection('firebase_tests').where('environment', '==', 'render').limit(5).get()
+        query_results = [doc.to_dict() for doc in query]
+        results['tests']['query_operation'] = {
+            'status': 'success',
+            'message': 'Operação de consulta bem-sucedida',
+            'count': len(query_results)
+        }
+        
+        return JsonResponse(results)
+        
+    except Exception as e:
+        logger.error(f"Erro no teste do Firebase: {str(e)}", exc_info=True)
+        
+        # Se houver erro, atualizar o status geral
+        results['success'] = False
+        results['error'] = str(e)
+        
+        # Adicionar informação sobre o erro ao teste específico que falhou
+        if 'connection' not in results['tests']:
+            results['tests']['connection'] = {
+                'status': 'error',
+                'message': f'Falha na conexão com Firebase: {str(e)}'
+            }
+        
+        return JsonResponse(results, status=500)

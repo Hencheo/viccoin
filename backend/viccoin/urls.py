@@ -17,10 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
+from .health import health_check_view
 
 def api_root(request):
     """
-    View de raiz da API.
+    Endpoint raiz da API que lista os endpoints disponíveis.
     """
     return JsonResponse({
         'message': 'Bem-vindo à API do VicCoin!',
@@ -30,7 +31,9 @@ def api_root(request):
                 'register': '/api/users/register/',
                 'login': '/api/users/login/',
                 'hello_world': '/api/users/hello-world/',
-            }
+                'firebase_test': '/api/users/firebase-test/',
+            },
+            'health': '/health/',
         }
     })
 
@@ -38,4 +41,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', api_root, name='api_root'),
     path('api/users/', include('users.urls', namespace='users')),
+    path('health/', health_check_view, name='health_check'),
 ]

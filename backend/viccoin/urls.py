@@ -41,6 +41,7 @@ def api_root(request):
                 'listar': '/api/transacoes/listar/',
                 'resumo': '/api/transacoes/resumo/',
                 'relatorio': '/api/transacoes/relatorio/',
+                'atualizar_salario': '/api/transacoes/salario/<id>/',
             },
             'health': '/health/',
         }
@@ -56,6 +57,7 @@ urlpatterns = [
     path('api/transacoes/despesa/', views.adicionar_despesa, name='adicionar_despesa'),
     path('api/transacoes/ganho/', views.adicionar_ganho, name='adicionar_ganho'),
     path('api/transacoes/salario/', views.adicionar_salario, name='adicionar_salario'),
+    path('api/transacoes/salario/<str:salario_id>/', views.atualizar_salario, name='atualizar_salario'),
     path('api/transacoes/listar/', views.listar_transacoes, name='listar_transacoes'),
     path('api/transacoes/resumo/', views.obter_resumo_financeiro, name='obter_resumo_financeiro'),
     path('api/transacoes/relatorio/', views.relatorio_por_periodo, name='relatorio_por_periodo'),

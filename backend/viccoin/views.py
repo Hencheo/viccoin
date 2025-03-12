@@ -283,4 +283,72 @@ def relatorio_por_periodo(request):
         return JsonResponse({
             'success': False,
             'message': f'Erro ao gerar relatório: {str(e)}'
+        }, status=500)
+
+@csrf_exempt
+@require_http_methods(["PUT"])
+def atualizar_salario(request, salario_id):
+    """
+    Atualiza um registro de salário existente.
+    
+    Args:
+        request: Objeto de requisição HTTP
+        salario_id: ID do registro de salário a ser atualizado
+    
+    Returns:
+        JsonResponse: Resposta com o resultado da operação
+    """
+    user_id = get_user_id_from_token(request)
+    if not user_id:
+        return JsonResponse({'success': False, 'message': 'Usuário não autenticado'}, status=401)
+    
+    try:
+        dados = json.loads(request.body)
+        
+        # Validar dados
+        if 'valor' not in dados or not dados['valor']:
+            return JsonResponse({'success': False, 'message': 'Valor é obrigatório'}, status=400)
+        
+        if 'data_recebimento' not in dados or not dados['data_recebimento']:
+            dados['data_recebimento'] = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Verificar se o registro existe e pertence ao usuário
+        salario = firestore_client.document(f"users/{user_id}/salario/{salario_id}").get()
+        
+        if not salario.exists:
+            return JsonResponse({'success': False, 'message': 'Registro de salário não encontrado'}, status=404)
+        
+        # Obter o valor antigo para ajustar o saldo
+        dados_antigos = salario.to_dict()
+        valor_antigo = float(dados_antigos.get('valor', 0))
+        valor_novo = float(dados.get('valor', 0))
+        
+        # Atualizar registro
+        firestore_client.document(f"users/{user_id}/salario/{salario_id}").update({
+            'valor': valor_novo,
+            'data_recebimento': dados.get('data_recebimento'),
+            'periodo': dados.get('periodo', 'mensal'),
+            'recorrente': dados.get('recorrente', True),
+            'tipo': 'salario'
+        })
+        
+        # Atualizar saldo do usuário (subtrair valor antigo e adicionar valor novo)
+        usuario_ref = firestore_client.document(f"users/{user_id}")
+        usuario = usuario_ref.get()
+        
+        if usuario.exists:
+            saldo_atual = usuario.to_dict().get('saldo', 0)
+            novo_saldo = saldo_atual - valor_antigo + valor_novo
+            usuario_ref.update({'saldo': novo_saldo})
+        
+        return JsonResponse({
+            'success': True, 
+            'message': 'Salário atualizado com sucesso'
+        })
+        
+    except Exception as e:
+        logging.error(f"Erro ao atualizar salário: {str(e)}")
+        return JsonResponse({
+            'success': False, 
+            'message': f'Erro ao atualizar salário: {str(e)}'
         }, status=500) 

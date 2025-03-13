@@ -183,49 +183,123 @@ function Home({ navigation }) {
   
   // Salvar nova transação
   const salvarTransacao = async () => {
+    // Validação inicial do valor
     if (!valor || isNaN(parseFloat(valor))) {
       Alert.alert('Erro', 'Por favor, informe um valor válido.');
       return;
     }
     
+    // Validação da categoria
+    if (!categoria) {
+      Alert.alert('Erro', 'Por favor, selecione uma categoria.');
+      return;
+    }
+
     try {
       setLoading(true);
       
+      // Verificar token de autenticação
+      const token = await AsyncStorage.getItem('@VicCoin:token');
+      console.log('🔑 Token de autenticação:', token ? `${token.substring(0, 10)}... (${token.length} caracteres)` : 'Ausente');
+      
+      if (!token) {
+        console.warn('⚠️ Token não encontrado! O usuário pode não estar autenticado corretamente.');
+        Alert.alert('Erro de Autenticação', 'Parece que você não está logado. Por favor, faça login novamente.');
+        signOut(); // Redirecionar para login
+        return;
+      }
+      
+      // Construir dados base da transação
       let dados = {
-        valor: parseFloat(valor),
-        descricao,
-        categoria,
-        data,
-        recorrente,
+        valor: parseFloat(valor.replace(',', '.')), // Garantir formato numérico correto
+        descricao: descricao || `${tipoTransacao} sem descrição`,
+        categoria: categoria,
+        data: data,
+        recorrente: recorrente || false,
       };
       
+      // Adicionar local se for uma despesa
       if (tipoTransacao === 'despesa' && local) {
         dados.local = local;
       }
       
+      console.log('📊 Dados a serem enviados:', JSON.stringify(dados, null, 2));
+      
       let resposta;
       
-      if (tipoTransacao === 'despesa') {
-        resposta = await financasService.adicionarDespesa(dados);
-      } else if (tipoTransacao === 'ganho') {
-        resposta = await financasService.adicionarGanho(dados);
-      } else if (tipoTransacao === 'salario') {
-        dados.data_recebimento = data; // Renomear para campo correto
-        delete dados.data;
-        dados.periodo = 'mensal';
-        resposta = await financasService.adicionarSalario(dados);
+      try {
+        console.log(`🔄 Iniciando envio de ${tipoTransacao} para a API...`);
+        
+        if (tipoTransacao === 'despesa') {
+          console.log('💸 Enviando despesa para API...');
+          resposta = await financasService.adicionarDespesa(dados);
+        } else if (tipoTransacao === 'ganho') {
+          console.log('💰 Enviando ganho para API...');
+          resposta = await financasService.adicionarGanho(dados);
+        } else if (tipoTransacao === 'salario') {
+          // Ajustar dados específicos para salário
+          const dadosSalario = {
+            valor: parseFloat(valor.replace(',', '.')),
+            descricao: descricao || 'Salário',
+            categoria: categoria,
+            data_recebimento: data,
+            periodo: 'mensal',
+            recorrente: true
+          };
+          
+          console.log('💼 Enviando salário para API com dados:', JSON.stringify(dadosSalario, null, 2));
+          resposta = await financasService.adicionarSalario(dadosSalario);
+        }
+        
+        console.log('✅ Resposta da API:', JSON.stringify(resposta, null, 2));
+      } catch (error) {
+        console.error('❌ Erro na requisição à API:', error.message || error);
+        console.error('❌ Tipo do erro:', typeof error);
+        
+        // Tentar obter mais detalhes do erro
+        if (error.response) {
+          console.error('📄 Dados da resposta:', error.response.data);
+          console.error('🔍 Status code:', error.response.status);
+          console.error('🧩 Headers:', JSON.stringify(error.response.headers, null, 2));
+        } else if (error.request) {
+          console.error('📡 Erro de comunicação - sem resposta do servidor');
+        }
+        
+        // Mostrar mensagem amigável ao usuário
+        Alert.alert(
+          'Erro na Comunicação',
+          'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.',
+          [{ text: 'OK' }]
+        );
+        setLoading(false);
+        return;
       }
       
-      if (resposta.success) {
-        Alert.alert('Sucesso', `${tipoTransacao} adicionado(a) com sucesso!`);
+      // Verificar resultado da operação
+      if (resposta && resposta.success) {
+        console.log('✅ Transação salva com sucesso!');
+        Alert.alert(
+          'Sucesso!', 
+          `${tipoTransacao.charAt(0).toUpperCase() + tipoTransacao.slice(1)} adicionado(a) com sucesso!`
+        );
         setModalVisible(false);
-        carregarDados(); // Recarregar dados
+        // Limpar campos do formulário
+        setValor('');
+        setDescricao('');
+        setCategoria('');
+        setLocal('');
+        setData(new Date().toISOString().split('T')[0]);
+        setRecorrente(false);
+        // Recarregar dados
+        carregarDados();
       } else {
-        Alert.alert('Erro', resposta.message || 'Ocorreu um erro ao salvar.');
+        const mensagemErro = resposta?.message || 'Ocorreu um erro desconhecido ao salvar.';
+        console.error('❌ Erro ao salvar:', mensagemErro);
+        Alert.alert('Erro', mensagemErro);
       }
     } catch (error) {
-      console.error('Erro ao salvar transação:', error);
-      Alert.alert('Erro', 'Não foi possível salvar a transação.');
+      console.error('❌ Erro geral ao salvar transação:', error);
+      Alert.alert('Erro', 'Não foi possível salvar a transação. Tente novamente mais tarde.');
     } finally {
       setLoading(false);
     }

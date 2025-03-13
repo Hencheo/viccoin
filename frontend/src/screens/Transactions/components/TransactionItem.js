@@ -14,11 +14,108 @@ import Animated, {
   runOnJS
 } from 'react-native-reanimated';
 import { PanGestureHandler } from 'react-native-gesture-handler';
+import { useSelector } from 'react-redux';
 
 // Constantes
 const SWIPE_THRESHOLD = -80;
 
+// Função helper para ajustar problema de fuso horário
+const adjustForTimezone = (date) => {
+  if (!date) return null;
+  
+  // Criar nova instância de data para não modificar a original
+  const newDate = new Date(date);
+  
+  // Extrair dia, mês e ano da data
+  const dia = newDate.getDate();
+  const mes = newDate.getMonth();
+  const ano = newDate.getFullYear();
+  
+  // Preservar informações de hora e minuto para exibição
+  const hora = newDate.getHours();
+  const minuto = newDate.getMinutes();
+  
+  // Criar nova data preservando apenas as informações necessárias
+  // Isso elimina os problemas de conversão de fuso horário
+  const dataAjustada = new Date();
+  dataAjustada.setFullYear(ano, mes, dia);
+  dataAjustada.setHours(hora, minuto, 0, 0);
+  
+  return dataAjustada;
+};
+
 function TransactionItem({ transaction, onEdit, formatCurrency }) {
+  // Corrigir a forma como as categorias são obtidas do Redux
+  const categoriasState = useSelector(state => state.categorias);
+  
+  // Função para obter o nome da categoria do Redux
+  const getCategoryNameFromRedux = (categoryId, tipo) => {
+    if (typeof categoryId === 'string' && isNaN(parseInt(categoryId))) {
+      return categoryId; // Se for uma string não numérica, retorna ela mesma
+    }
+    
+    // Se for número ou string numérica, tenta encontrar pelo índice
+    const idNumber = parseInt(categoryId);
+    
+    // Categorias padrão para quando o estado estiver vazio
+    const categoriasPadrao = {
+      despesas: [
+        'Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Educação',
+        'Lazer', 'Compras', 'Viagem', 'Tecnologia', 'Vestuário',
+        'Serviços', 'Supermercado', 'Entretenimento', 'Utilidades'
+      ],
+      ganhos: [
+        'Salário', 'Freelance', 'Investimentos', 'Vendas', 'Presentes'
+      ],
+      salarios: [
+        'Mensal', 'Quinzenal', 'Semanal', 'Bônus', 'Participação'
+      ]
+    };
+    
+    // Verificar se o estado tem categorias, caso contrário usar as padrão
+    const despesas = categoriasState.despesas?.length > 0 ? categoriasState.despesas : categoriasPadrao.despesas;
+    const ganhos = categoriasState.ganhos?.length > 0 ? categoriasState.ganhos : categoriasPadrao.ganhos;
+    const salarios = categoriasState.salarios?.length > 0 ? categoriasState.salarios : categoriasPadrao.salarios;
+    
+    // Log para depuração
+    console.log(`TransactionItem - Verificando categoria ID ${categoryId} com tipo ${tipo || 'desconhecido'}`);
+    
+    try {
+      // Para transações de despesa, usar o array de despesas
+      if (tipo === 'despesa' && idNumber > 0 && idNumber <= despesas.length) {
+        return despesas[idNumber - 1];
+      }
+      
+      // Para transações de ganho, usar o array de ganhos
+      if (tipo === 'ganho' && idNumber > 0 && idNumber <= ganhos.length) {
+        return ganhos[idNumber - 1];
+      }
+      
+      // Se o tipo for desconhecido, tentar localizar em todos os arrays
+      if (idNumber > 0) {
+        // Tentar em despesas (categoria mais comum)
+        if (idNumber <= despesas.length) {
+          return despesas[idNumber - 1];
+        }
+        
+        // Tentar em ganhos
+        if (idNumber <= ganhos.length) {
+          return ganhos[idNumber - 1];
+        }
+        
+        // Tentar em salários
+        if (idNumber <= salarios.length) {
+          return salarios[idNumber - 1];
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao mapear categoria:', error);
+    }
+    
+    // Se não encontrar em nenhuma lista, retorna o formato padrão
+    return `Categoria ${categoryId}`;
+  };
+  
   // Valores animados para o swipe
   const translateX = useSharedValue(0);
   const itemHeight = useSharedValue(70); // Altura padrão do item
@@ -47,11 +144,13 @@ function TransactionItem({ transaction, onEdit, formatCurrency }) {
     }
   }, [transaction]);
   
-  // Formatar data e hora
+  // Formatar data e hora com correção de fuso horário
   const formatDateTime = (dateString) => {
     if (!dateString) return '';
     
-    const date = new Date(dateString);
+    // Corrigir problema de fuso horário
+    const date = adjustForTimezone(dateString);
+    
     return `${date.toLocaleDateString('pt-BR')} · ${date.toLocaleTimeString('pt-BR', { 
       hour: '2-digit', 
       minute: '2-digit' 
@@ -121,11 +220,20 @@ function TransactionItem({ transaction, onEdit, formatCurrency }) {
           
           {/* Detalhes da transação */}
           <View style={styles.detailsContainer}>
+            {/* Log para depuração da categoria */}
+            {console.log('TransactionItem - Categoria:', transaction.categoria, typeof transaction.categoria)}
             <Text style={styles.categoryText}>
-              {transaction.categoria || 'Sem categoria'}
+              {typeof transaction.categoria === 'string' 
+                ? transaction.categoria
+                : getCategoryNameFromRedux(transaction.categoria, transaction.tipo)}
             </Text>
-            <Text style={styles.descriptionText}>
-              {transaction.descricao || 'Sem descrição'}
+            {transaction.descricao ? (
+              <Text style={styles.descriptionText}>
+                {transaction.descricao}
+              </Text>
+            ) : null}
+            <Text style={styles.dateText}>
+              {formatDateTime(transaction.data)}
             </Text>
           </View>
           
@@ -137,9 +245,6 @@ function TransactionItem({ transaction, onEdit, formatCurrency }) {
             ]}>
               {transaction.tipo === 'despesa' ? '-' : '+'} 
               {formatCurrency(transaction.valor)}
-            </Text>
-            <Text style={styles.dateText}>
-              {formatDateTime(transaction.data)}
             </Text>
           </View>
         </Animated.View>
@@ -176,25 +281,28 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     color: '#FFFFFF',
-    fontWeight: '500',
-    fontSize: 14,
+    fontWeight: '600',
+    fontSize: 15,
     marginBottom: 2,
   },
   descriptionText: {
     color: '#BBBBBB',
-    fontSize: 12,
+    fontSize: 13,
+    marginBottom: 2,
   },
   valueContainer: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   valueText: {
     fontWeight: 'bold',
-    fontSize: 14,
-    marginBottom: 2,
+    fontSize: 16,
+    marginBottom: 0,
   },
   dateText: {
     color: '#888888',
-    fontSize: 10,
+    fontSize: 12,
   },
   actionsContainer: {
     position: 'absolute',

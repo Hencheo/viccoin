@@ -7,7 +7,8 @@ import {
   StatusBar, 
   FlatList,
   TouchableOpacity,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -34,7 +35,10 @@ function TransactionsScreen({ navigation, route }) {
   // Estado para armazenar as transações
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Inicializar o filtro com o parâmetro de rota, se disponível, senão usar 'all'
   const [activeFilter, setActiveFilter] = useState(route.params?.filter || 'all');
+  // Estado para totais de ganhos e despesas
+  const [totals, setTotals] = useState({ totalGanhos: 0, totalDespesas: 0 });
   
   // Estado para edição de transação
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -47,37 +51,51 @@ function TransactionsScreen({ navigation, route }) {
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Aqui enviamos o tipo apenas se não for 'all'
       const tipo = activeFilter !== 'all' ? activeFilter : null;
-      let response;
       
-      try {
-        response = await financasService.listarTransacoes(tipo);
-      } catch (error) {
-        console.log('API indisponível, usando dados de exemplo para desenvolvimento');
-        // Dados de exemplo para desenvolvimento
-        response = {
-          success: true,
-          data: { 
-            transacoes: [] 
-          }
-        };
-      }
+      console.log(`Buscando transações com filtro de tipo: ${tipo || 'todas'}`);
       
-      if (response && response.success) {
-        setTransactions(response.data?.transacoes || []);
+      // Fazer a requisição para obter todas as transações (não passamos limite)
+      const response = await financasService.listarTransacoes(tipo);
+      
+      if (response.success) {
+        console.log(`Transações carregadas com sucesso. Total: ${response.transacoes?.length || 0}`);
+        
+        // Ordenar transações por data, mais recentes primeiro
+        const sortedTransactions = [...(response.transacoes || [])].sort(
+          (a, b) => new Date(b.data) - new Date(a.data)
+        );
+        
+        setTransactions(sortedTransactions);
+        setTotals({
+          totalGanhos: response.total_ganhos || 0,
+          totalDespesas: response.total_despesas || 0
+        });
       } else {
-        // Tratamento silencioso, sem mostrar alerta para o usuário
-        console.log('Não foi possível carregar as transações, usando lista vazia');
+        // Se a resposta não tem sucesso, mostrar mensagem de erro
+        Alert.alert('Erro', response.message || 'Não foi possível carregar as transações.');
         setTransactions([]);
+        setTotals({ totalGanhos: 0, totalDespesas: 0 });
       }
     } catch (error) {
-      // Apenas log, sem alerta para o usuário
-      console.log('Erro ao processar transações:', error.message || 'Erro desconhecido');
+      console.error('Erro ao carregar transações:', error);
+      Alert.alert('Erro', 'Não foi possível carregar as transações. Verifique sua conexão com a internet.');
       setTransactions([]);
+      setTotals({ totalGanhos: 0, totalDespesas: 0 });
     } finally {
       setIsLoading(false);
     }
   }, [activeFilter]);
+  
+  // Efeito para atualizar o filtro quando receber um novo parâmetro na rota
+  useEffect(() => {
+    if (route.params?.filter) {
+      const newFilter = route.params.filter;
+      console.log(`Atualizando filtro para: ${newFilter}`);
+      setActiveFilter(newFilter);
+    }
+  }, [route.params?.filter]);
   
   // Carregar dados quando o componente montar ou o filtro mudar
   useEffect(() => {
@@ -102,10 +120,12 @@ function TransactionsScreen({ navigation, route }) {
       setIsLoading(true);
       
       // Lógica para identificar o tipo de transação e chamar o endpoint correto
-      let response;
       const { id, tipo, ...dados } = editedTransaction;
       
       try {
+        console.log('Atualizando transação:', { id, tipo, dados });
+        let response;
+        
         if (tipo === 'despesa') {
           response = await financasService.atualizarDespesa(id, dados);
         } else if (tipo === 'ganho') {
@@ -113,16 +133,16 @@ function TransactionsScreen({ navigation, route }) {
         } else {
           response = await financasService.atualizarSalario(id, dados);
         }
+        
+        if (response && response.success) {
+          Alert.alert('Sucesso', 'Transação atualizada com sucesso');
+          fetchTransactions(); // Recarregar a lista
+        } else {
+          Alert.alert('Erro', response.message || 'Não foi possível atualizar a transação.');
+        }
       } catch (error) {
-        console.log('API indisponível, simulando resposta de sucesso para desenvolvimento');
-        response = { success: true };
-      }
-      
-      if (response && response.success) {
-        Alert.alert('Sucesso', 'Transação atualizada com sucesso');
-        fetchTransactions(); // Recarregar a lista
-      } else {
-        Alert.alert('Aviso', 'Não foi possível atualizar a transação. A API pode estar indisponível.');
+        console.error('Erro ao atualizar transação:', error);
+        Alert.alert('Erro', 'Ocorreu um erro ao atualizar a transação. Tente novamente mais tarde.');
       }
     } catch (error) {
       // Log mais amigável
@@ -138,14 +158,15 @@ function TransactionsScreen({ navigation, route }) {
   // Renderizar cabeçalho
   const renderHeader = () => (
     <View style={styles.header}>
-      <TouchableOpacity 
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Icon name="arrow-back" size={24} color="#FFFFFF" />
+      <TouchableOpacity onPress={() => navigation.goBack()}>
+        <Icon name="arrow-back" size={24} color="white" />
       </TouchableOpacity>
-      <Text style={styles.headerTitle}>Transações</Text>
-      <View style={styles.headerRight} />
+      <View style={styles.headerTitleContainer}>
+        <Text style={styles.headerTitle}>
+          {activeFilter === 'all' ? 'Todas Transações' : 
+           activeFilter === 'despesa' ? 'Todas Despesas' : 'Todos Ganhos'}
+        </Text>
+      </View>
     </View>
   );
   
@@ -225,12 +246,21 @@ function TransactionsScreen({ navigation, route }) {
         onRefresh={fetchTransactions}
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
-            <Icon name="document-text-outline" size={60} color="#444" />
-            <Text style={styles.emptyText}>
-              {activeFilter === 'all' 
-                ? 'Nenhuma transação encontrada' 
-                : `Nenhuma ${activeFilter === 'despesa' ? 'despesa' : 'receita'} encontrada`}
-            </Text>
+            {isLoading ? (
+              <>
+                <ActivityIndicator size="large" color="#A239FF" style={styles.loadingIndicator} />
+                <Text style={styles.loadingText}>Carregando transações...</Text>
+              </>
+            ) : (
+              <>
+                <Icon name="document-text-outline" size={60} color="#444" />
+                <Text style={styles.emptyText}>
+                  {activeFilter === 'all' 
+                    ? 'Nenhuma transação encontrada' 
+                    : `Nenhuma ${activeFilter === 'despesa' ? 'despesa' : 'receita'} encontrada`}
+                </Text>
+              </>
+            )}
           </View>
         )}
       />
@@ -258,26 +288,18 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
     backgroundColor: '#121212',
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1E1E1E',
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: 16,
   },
   headerTitle: {
-    fontSize: 18,
+    color: 'white',
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  headerRight: {
-    width: 40,
   },
   filtersContainer: {
     flexDirection: 'row',
@@ -312,7 +334,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    padding: 20,
+    height: 300,
+  },
+  loadingIndicator: {
+    marginBottom: 16,
+  },
+  loadingText: {
+    color: '#A239FF',
+    fontSize: 16,
+    textAlign: 'center',
   },
   emptyText: {
     color: '#BBBBBB',

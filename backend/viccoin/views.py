@@ -97,33 +97,62 @@ def adicionar_ganho(request):
         }, status=500)
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "OPTIONS"])
 def adicionar_salario(request):
     """
     Adiciona um novo registro de salário para o usuário.
     """
+    # Log de debug para entender a requisição
+    logger.info(f"Recebida requisição para adicionar_salario - Método: {request.method}")
+    logger.info(f"Headers: {request.headers}")
+    
+    # Se for uma requisição OPTIONS (preflight CORS), retornar OK
+    if request.method == "OPTIONS":
+        response = JsonResponse({'success': True})
+        return response
+    
     user_id = get_user_id_from_token(request)
     if not user_id:
+        logger.error("Tentativa de adicionar salário sem autenticação")
         return JsonResponse({'success': False, 'message': 'Usuário não autenticado'}, status=401)
     
     try:
         dados = json.loads(request.body)
+        logger.info(f"Dados recebidos para adicionar salário: {dados}")
         
         # Validar dados
         if 'valor' not in dados or not dados['valor']:
+            logger.error("Tentativa de adicionar salário sem valor")
             return JsonResponse({'success': False, 'message': 'Valor é obrigatório'}, status=400)
         
         if 'data_recebimento' not in dados or not dados['data_recebimento']:
             dados['data_recebimento'] = datetime.datetime.now().strftime('%Y-%m-%d')
+            logger.info(f"Data de recebimento não fornecida, usando atual: {dados['data_recebimento']}")
         
         # Adicionar salário
         salario_id = firestore_client.add_salario(user_id, dados)
+        logger.info(f"Salário adicionado com sucesso. ID: {salario_id}")
+        
+        # Verificar se o salário foi realmente adicionado
+        salario = firestore_client.document(f"users/{user_id}/salario/{salario_id}").get()
+        if not salario.exists:
+            logger.error(f"Salário não encontrado após adicionar: {salario_id}")
+            return JsonResponse({
+                'success': False, 
+                'message': 'Falha ao adicionar salário: não foi encontrado após criação'
+            }, status=500)
         
         return JsonResponse({
             'success': True, 
             'message': 'Salário adicionado com sucesso',
             'salario_id': salario_id
         })
+    except ValueError as e:
+        logger.error(f"Erro ao decodificar JSON: {str(e)}")
+        return JsonResponse({
+            'success': False, 
+            'message': f'Erro no formato dos dados: {str(e)}'
+        }, status=400)
     except Exception as e:
         logger.error(f"Erro ao adicionar salário: {str(e)}")
         return JsonResponse({

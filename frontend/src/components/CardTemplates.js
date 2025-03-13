@@ -638,23 +638,99 @@ export const NebulaPurpleCard = ({
   mesAtual,
   progressValue,
   formatarMoeda,
-  progressStyle
+  progressStyle,
+  transacoes = []
 }) => {
   // Estado para controlar qual período está selecionado
   const [periodoSelecionado, setPeriodoSelecionado] = useState('hoje');
   
-  // Simulação de orçamentos e gastos para diferentes períodos
-  const orcamentos = {
-    hoje: 100, // Exemplo: orçamento diário de R$ 100
-    mes: 3000, // Exemplo: orçamento mensal de R$ 3000
-    ano: 36000 // Exemplo: orçamento anual de R$ 36000
+  // Função para calcular gastos por período com base em transações reais
+  const calcularGastosPorPeriodo = () => {
+    if (!transacoes || transacoes.length === 0) {
+      return {
+        hoje: 0,
+        mes: despesasTotal || 0,
+        ano: despesasTotal || 0
+      };
+    }
+    
+    const dataAtual = new Date();
+    // Ajustar para fuso horário local para garantir que a data de hoje esteja correta
+    const hojeLocal = new Date(dataAtual);
+    hojeLocal.setHours(0, 0, 0, 0);
+    
+    const anoAtual = dataAtual.getFullYear();
+    const mesAtual = dataAtual.getMonth() + 1; // Mês começa em 0
+    
+    // Filtrar apenas despesas
+    const despesas = transacoes.filter(t => t.tipo === 'despesa');
+    
+    // Somar despesas de hoje - compara usando data local
+    const gastosHoje = despesas
+      .filter(t => {
+        if (!t.data) return false;
+        // Criar uma data local do registro e ajustar para o início do dia
+        const dataTransacao = new Date(t.data);
+        
+        // Extrair apenas a data, ignorando o horário
+        const diaTransacao = dataTransacao.getDate();
+        const mesTransacao = dataTransacao.getMonth();
+        const anoTransacao = dataTransacao.getFullYear();
+        
+        // Criar uma nova data com apenas dia/mês/ano, sem informações de hora
+        const dataAjustada = new Date();
+        dataAjustada.setFullYear(anoTransacao, mesTransacao, diaTransacao);
+        dataAjustada.setHours(0, 0, 0, 0);
+        
+        // Comparar as datas sem considerar o horário
+        return dataAjustada.getTime() === hojeLocal.getTime();
+      })
+      .reduce((total, t) => total + parseFloat(t.valor || 0), 0);
+    
+    // Somar despesas deste mês
+    const gastosMes = despesas
+      .filter(t => {
+        if (!t.data) return false;
+        const data = new Date(t.data);
+        
+        // Extrair apenas o mês e o ano
+        const mesTransacao = data.getMonth() + 1;
+        const anoTransacao = data.getFullYear();
+        
+        return anoTransacao === anoAtual && mesTransacao === mesAtual;
+      })
+      .reduce((total, t) => total + parseFloat(t.valor || 0), 0);
+    
+    // Somar despesas deste ano
+    const gastosAno = despesas
+      .filter(t => {
+        if (!t.data) return false;
+        const data = new Date(t.data);
+        
+        // Extrair apenas o ano
+        const anoTransacao = data.getFullYear();
+        
+        return anoTransacao === anoAtual;
+      })
+      .reduce((total, t) => total + parseFloat(t.valor || 0), 0);
+      
+    console.log('Gastos calculados - Hoje:', gastosHoje, 'Mês:', gastosMes, 'Ano:', gastosAno);
+    
+    return {
+      hoje: gastosHoje,
+      mes: gastosMes || despesasTotal, // Usar despesasTotal como fallback se gastosMes for 0
+      ano: gastosAno || despesasTotal  // Usar despesasTotal como fallback se gastosAno for 0
+    };
   };
   
-  // Simulação de gastos para diferentes períodos
-  const gastos = {
-    hoje: despesasTotal / 30, // Simplificação para gastos diários
-    mes: despesasTotal,       // Gastos mensais
-    ano: despesasTotal * 12   // Simplificação para gastos anuais
+  // Calcular os gastos uma vez
+  const gastos = calcularGastosPorPeriodo();
+  
+  // Orçamentos ajustados para serem proporcionais aos gastos (apenas para exemplo)
+  const orcamentos = {
+    hoje: Math.max(gastos.hoje * 1.5, 100), 
+    mes: Math.max(gastos.mes * 1.2, 3000),
+    ano: Math.max(gastos.ano * 1.1, 36000)
   };
   
   // Calcular a porcentagem do orçamento atingida

@@ -12,13 +12,14 @@ import {
   Platform,
   Alert,
   FlatList,
-  Pressable
+  Pressable,
+  RefreshControl
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { financasService } from '../services/api';
-import { formatarMoeda } from '../utils/formatters';
+import { formatarMoeda, formatDateWithTimezoneOffset } from '../utils/formatters';
 import Animated from 'react-native-reanimated';
 import {
   useSharedValue, 
@@ -69,11 +70,14 @@ const ANIMATION_CONFIG = {
 
 function HomeScreen({ navigation }) {
   const user = useSelector(state => state.auth.user);
+  const dispatch = useDispatch();
+  const categoriasState = useSelector(state => state.categorias);
   const [saudacao, setSaudacao] = useState('');
   const [saldoDisponivel, setSaldoDisponivel] = useState(0);
   const [resumoFinanceiro, setResumoFinanceiro] = useState(null);
   const [transacoes, setTransacoes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [mesAtual, setMesAtual] = useState(getMesAtual());
   // Novo estado para controlar se deve mostrar a dica de personalização
   const [showCustomizeTip, setShowCustomizeTip] = useState(true);
@@ -87,6 +91,9 @@ function HomeScreen({ navigation }) {
   const ganhoButtonActive = useSharedValue(0);
   const addButtonScale = useSharedValue(1);
   const addButtonColorValue = useSharedValue(0);
+  
+  // Estado para controlar o valor do salário (referência para a barra de progresso)
+  const [salarioReferencia, setSalarioReferencia] = useState(0);
   
   const maxSaldo = 10000; // Valor máximo para cálculo da porcentagem
 
@@ -248,14 +255,21 @@ function HomeScreen({ navigation }) {
         },
         { 
           text: "Sim, sair", 
-          onPress: () => {
-            // Implementar lógica de logout com Redux
-            AsyncStorage.clear();
-            // Navegar para a tela de login
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
+          onPress: async () => {
+            try {
+              // Limpar AsyncStorage
+              await AsyncStorage.clear();
+              
+              // Despachar a ação de logout para o Redux
+              dispatch({ type: 'LOGOUT' });
+              
+              // Navegar diretamente para a tela de Login
+              navigation.replace('Login');
+            } catch (error) {
+              console.error('Erro ao fazer logout:', error);
+              // Mesmo com erro, tentar navegar para a tela inicial
+              navigation.replace('Login');
+            }
           } 
         }
       ]
@@ -273,6 +287,61 @@ function HomeScreen({ navigation }) {
       setSaudacao('Boa noite');
     }
   }, []);
+
+  // Função para obter o nome da categoria do Redux
+  const getCategoryNameFromRedux = (categoryId, tipo) => {
+    if (typeof categoryId === 'string' && isNaN(parseInt(categoryId))) {
+      return categoryId; // Se for uma string não numérica, retorna ela mesma
+    }
+    
+    // Se for número ou string numérica, tenta encontrar pelo índice
+    const idNumber = parseInt(categoryId);
+    
+    // Categorias padrão para quando o estado estiver vazio
+    const categoriasPadrao = {
+      despesas: [
+        'Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Educação',
+        'Lazer', 'Compras', 'Viagem', 'Tecnologia', 'Vestuário',
+        'Serviços', 'Supermercado', 'Entretenimento', 'Utilidades'
+      ],
+      ganhos: [
+        'Salário', 'Freelance', 'Investimentos', 'Vendas', 'Presentes'
+      ],
+      salarios: [
+        'Mensal', 'Quinzenal', 'Semanal', 'Bônus', 'Participação'
+      ]
+    };
+    
+    // Verificar se o estado tem categorias, caso contrário usar as padrão
+    const despesas = categoriasState.despesas?.length > 0 ? categoriasState.despesas : categoriasPadrao.despesas;
+    const ganhos = categoriasState.ganhos?.length > 0 ? categoriasState.ganhos : categoriasPadrao.ganhos;
+    const salarios = categoriasState.salarios?.length > 0 ? categoriasState.salarios : categoriasPadrao.salarios;
+    
+    // Log para depuração
+    console.log(`Verificando categoria ID ${categoryId} com tipo ${tipo || 'desconhecido'}`);
+    
+    try {
+      // Para transações de despesa, usar o array de despesas
+      if (idNumber > 0 && idNumber <= despesas.length) {
+        return despesas[idNumber - 1];
+      }
+      
+      // Para transações de ganho, usar o array de ganhos
+      if (idNumber > 0 && idNumber <= ganhos.length) {
+        return ganhos[idNumber - 1];
+      }
+      
+      // Para salários
+      if (idNumber > 0 && idNumber <= salarios.length) {
+        return salarios[idNumber - 1];
+      }
+    } catch (error) {
+      console.error('Erro ao mapear categoria:', error);
+    }
+    
+    // Se não encontrar em nenhuma lista, retorna o formato padrão
+    return `Categoria ${categoryId}`;
+  };
 
   // Função para gerar insights personalizados baseados nas transações
   const gerarInsights = useCallback(() => {
@@ -312,8 +381,8 @@ function HomeScreen({ navigation }) {
     
     if (maiorCategoria) {
       insights.push({
-        titulo: `Alto gasto em ${maiorCategoria}`,
-        descricao: `Você gastou R$${maiorValor.toFixed(2)} em ${maiorCategoria} recentemente`,
+        titulo: `Alto gasto em ${getCategoryNameFromRedux(maiorCategoria, 'despesa')}`,
+        descricao: `Você gastou R$${maiorValor.toFixed(2)} em ${getCategoryNameFromRedux(maiorCategoria, 'despesa')} recentemente`,
         icone: obterIconeCategoria(maiorCategoria),
         tipo: 'alerta',
         categoria: maiorCategoria
@@ -351,7 +420,7 @@ function HomeScreen({ navigation }) {
       if (ultimaTransacao.tipo === 'despesa' && parseFloat(ultimaTransacao.valor) > 200) {
         insights.push({
           titulo: 'Despesa significativa',
-          descricao: `Gasto recente de R$${parseFloat(ultimaTransacao.valor).toFixed(2)} em ${ultimaTransacao.categoria}`,
+          descricao: `Gasto recente de R$${parseFloat(ultimaTransacao.valor).toFixed(2)} em ${getCategoryNameFromRedux(ultimaTransacao.categoria, ultimaTransacao.tipo)}`,
           icone: 'alert-circle-outline',
           tipo: 'alerta',
           categoria: ultimaTransacao.categoria
@@ -381,7 +450,7 @@ function HomeScreen({ navigation }) {
     if (maisFrequente && maiorFrequencia >= 3) {
       insights.push({
         titulo: `Categoria frequente`,
-        descricao: `Você teve ${maiorFrequencia} transações em ${maisFrequente} recentemente`,
+        descricao: `Você teve ${maiorFrequencia} transações em ${getCategoryNameFromRedux(maisFrequente, 'despesa')} recentemente`,
         icone: obterIconeCategoria(maisFrequente),
         tipo: 'neutro',
         categoria: maisFrequente
@@ -398,7 +467,7 @@ function HomeScreen({ navigation }) {
           tipo: 'neutro',
           categoria: null
         };
-  }, [transacoes, resumoFinanceiro]);
+  }, [transacoes, resumoFinanceiro, categoriasState]);
   
   // Função para obter ícone baseado na categoria
   const obterIconeCategoria = (categoria) => {
@@ -435,6 +504,41 @@ function HomeScreen({ navigation }) {
     }
   };
 
+  // Estilo animado para a barra de progresso
+  const progressStyle = useAnimatedStyle(() => {
+    // Garantir que a barra de progresso seja renderizada com a largura correta
+    // usando width com valor percentual direto e não uma string com %
+    return {
+      width: `${Math.max(0, Math.min(progressValue.value * 100, 100))}%`,
+      backgroundColor: progressValue.value < 0.5 ? '#FF6B6B' : '#6BFF8E',
+    };
+  });
+
+  // Função específica para atualizar a barra de progresso
+  const atualizarBarraProgresso = useCallback((saldo, salario) => {
+    console.log(`🔄 Atualizando barra de progresso - Saldo: ${saldo}, Salário: ${salario}`);
+    if (salario > 0) {
+      // Calcular o percentual (proporção) do saldo em relação ao salário
+      const percentual = saldo / salario;
+      console.log(`📊 Percentual calculado: ${(percentual * 100).toFixed(2)}%`);
+      
+      // Limitar o valor entre 0 e 1
+      const valorLimitado = Math.max(0, Math.min(percentual, 1));
+      
+      // Animar a barra para o novo valor, seja maior ou menor que o anterior
+      progressValue.value = withTiming(valorLimitado, {
+        duration: 800,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      });
+    } else {
+      // Caso não tenha salário, usar um valor fixo (0.5 = 50%)
+      progressValue.value = withTiming(0.5, {
+        duration: 800,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      });
+    }
+  }, []);
+
   // Carregar dados financeiros e gerar insight
   useEffect(() => {
     const carregarDados = async () => {
@@ -466,26 +570,56 @@ function HomeScreen({ navigation }) {
           const resumoData = await financasService.obterResumoFinanceiro();
           
           if (resumoData && resumoData.success) {
-            console.log('Resumo financeiro carregado com sucesso');
+            console.log('Resumo financeiro carregado com sucesso:', JSON.stringify(resumoData, null, 2));
             setResumoFinanceiro(resumoData);
             
-            // Calcular saldo disponível
-            // Garantir que os valores sejam números
+            // Usar diretamente o saldo retornado pela API em vez de calculá-lo localmente
             const totalGanhos = parseFloat(resumoData.totalGanhos || 0);
             const totalDespesas = parseFloat(resumoData.totalDespesas || 0);
             
-            console.log(`Ganhos: ${totalGanhos}, Despesas: ${totalDespesas}`);
+            // Utilizar o saldo da API (que agora é calculado corretamente pelo backend)
+            const saldoAtual = resumoData.saldo;
             
-            const saldoAtual = totalGanhos - totalDespesas;
+            console.log(`📊 Resumo financeiro: Ganhos: R$${totalGanhos.toFixed(2)}, Despesas: R$${totalDespesas.toFixed(2)}, Saldo: R$${saldoAtual.toFixed(2)}`);
             
-            setSaldoDisponivel(saldoAtual);
+            // Verificar se o saldo é NaN ou inválido antes de atualizar o estado
+            if (isNaN(saldoAtual)) {
+              // Calcular manualmente como fallback se o saldo for inválido
+              const saldoCalculado = totalGanhos - totalDespesas;
+              console.log(`⚠️ Saldo inválido na API. Calculando manualmente: R$${saldoCalculado.toFixed(2)}`);
+              setSaldoDisponivel(saldoCalculado);
+            } else {
+              setSaldoDisponivel(saldoAtual);
+            }
             
-            // Animar a barra de progresso
-            const percentual = Math.min(Math.max(saldoAtual / maxSaldo, 0), 1);
-            progressValue.value = withTiming(percentual, { 
-              duration: 1000,
-              easing: Easing.bezier(0.4, 0, 0.2, 1)
-            });
+            // Buscar informações do salário para usar como referência para a barra de progresso
+            try {
+              const salarioData = await financasService.listarTransacoes('salario', 1);
+              if (salarioData && salarioData.success && salarioData.transacoes && salarioData.transacoes.length > 0) {
+                const valorSalario = parseFloat(salarioData.transacoes[0].valor || 0);
+                console.log(`💰 Salário encontrado: R$${valorSalario.toFixed(2)}`);
+                
+                if (valorSalario > 0) {
+                  // Definir o salário como referência
+                  setSalarioReferencia(valorSalario);
+                  
+                  // Atualizar a barra de progresso com o novo salário e saldo
+                  atualizarBarraProgresso(saldoAtual, valorSalario);
+                } else {
+                  // Fallback para o cálculo anterior se o salário for zero ou inválido
+                  console.log('⚠️ Valor do salário inválido, usando cálculo padrão');
+                  atualizarBarraProgresso(saldoAtual, maxSaldo);
+                }
+              } else {
+                // Se não encontrou salário, usar o cálculo padrão
+                console.log('ℹ️ Nenhum salário configurado, usando cálculo padrão');
+                atualizarBarraProgresso(saldoAtual, maxSaldo);
+              }
+            } catch (salarioError) {
+              console.error('❌ Erro ao buscar salário de referência:', salarioError);
+              // Usar cálculo padrão em caso de erro
+              atualizarBarraProgresso(saldoAtual, maxSaldo);
+            }
 
             // Atualização: Gerar insight depois de carregar os dados
             setTimeout(() => {
@@ -503,11 +637,17 @@ function HomeScreen({ navigation }) {
         }
         
         try {
-          // Obter transações recentes
-          const transacoesData = await financasService.listarTransacoes(null, 5);
+          // Obter transações recentes - não passamos limite para obter todas
+          const transacoesData = await financasService.listarTransacoes(null);
           if (transacoesData && transacoesData.success) {
             console.log('Transações carregadas com sucesso');
-            setTransacoes(transacoesData.transacoes || []);
+            // Filtrar para excluir salários e depois ordenar por data, mais recentes primeiro
+            const transacoesFiltradas = (transacoesData.transacoes || [])
+              .filter(transacao => transacao.tipo !== 'salario') // Excluir salários da lista de transações
+              .sort((a, b) => new Date(b.data) - new Date(a.data));
+            
+            console.log(`📋 Total de transações: ${transacoesData.transacoes?.length || 0}, Após filtrar salários: ${transacoesFiltradas.length}`);
+            setTransacoes(transacoesFiltradas);
           } else {
             console.log('Aviso: Resposta das transações sem sucesso. Usando lista vazia.');
             setTransacoes([]);
@@ -528,18 +668,27 @@ function HomeScreen({ navigation }) {
     // Função para exibir dados de exemplo quando não conseguir conectar
     const exibirDadosExemplo = () => {
       // Dados de exemplo para mostrar quando não há conexão com o backend
+      const ganhos = 5600;
+      const despesas = 3200;
+      const saldo = ganhos - despesas; // Garantir que o saldo seja calculado corretamente
+      const salarioExemplo = 5000; // Salário de exemplo para referência
+      
       const dadosExemplo = {
-        totalGanhos: 5600,
-        totalDespesas: 3200
+        success: true,
+        saldo: saldo,
+        totalGanhos: ganhos,
+        totalDespesas: despesas,
+        transacoesRecentes: []
       };
       
+      console.log(`📊 Exibindo dados de exemplo - Ganhos: R$${ganhos.toFixed(2)}, Despesas: R$${despesas.toFixed(2)}, Saldo: R$${saldo.toFixed(2)}`);
+      
       setResumoFinanceiro(dadosExemplo);
-      setSaldoDisponivel(dadosExemplo.totalGanhos - dadosExemplo.totalDespesas);
-      const percentual = Math.min((dadosExemplo.totalGanhos - dadosExemplo.totalDespesas) / maxSaldo, 1);
-      progressValue.value = withTiming(percentual, { 
-        duration: 1000,
-        easing: Easing.bezier(0.4, 0, 0.2, 1)
-      });
+      setSaldoDisponivel(saldo);
+      setSalarioReferencia(salarioExemplo);
+      
+      // Atualizar a barra de progresso diretamente usando a função centralizada
+      atualizarBarraProgresso(saldo, salarioExemplo);
       
       // Transações de exemplo
       setTransacoes([
@@ -589,13 +738,6 @@ function HomeScreen({ navigation }) {
     carregarDados();
   }, []);
 
-  // Estilo animado para a barra de progresso
-  const progressStyle = useAnimatedStyle(() => {
-    return {
-      width: `${progressValue.value * 100}%`,
-    };
-  });
-
   // Filtrar transações por tipo
   const [tipoFiltro, setTipoFiltro] = useState(null);
   
@@ -630,8 +772,8 @@ function HomeScreen({ navigation }) {
   }, [tipoFiltro]);
   
   const transacoesFiltradas = tipoFiltro
-    ? transacoes.filter(transacao => transacao.tipo === tipoFiltro)
-    : transacoes;
+    ? transacoes.filter(transacao => transacao.tipo === tipoFiltro).slice(0, 10)
+    : transacoes.slice(0, 10);
 
   // Estilos animados para os botões
   const despesaButtonStyle = useAnimatedStyle(() => {
@@ -723,14 +865,6 @@ function HomeScreen({ navigation }) {
   const despesasTotal = parseFloat(resumoFinanceiro?.totalDespesas || 0);
   const ganhosTotal = parseFloat(resumoFinanceiro?.totalGanhos || 0);
   
-  // Certificar-se de que saldoDisponivel está calculado corretamente
-  useEffect(() => {
-    const calculatedSaldo = ganhosTotal - despesasTotal;
-    if (saldoDisponivel !== calculatedSaldo) {
-      setSaldoDisponivel(calculatedSaldo);
-    }
-  }, [ganhosTotal, despesasTotal]);
-
   // Função para verificar se o usuário é novo (sem valores registrados)
   const isNovoUsuario = () => {
     return (
@@ -741,52 +875,137 @@ function HomeScreen({ navigation }) {
   };
 
   // Função para lidar com a adição de uma nova transação
-  const handleAddTransaction = (transacao = null) => {
+  const handleAddTransaction = async (transacao = null) => {
     setChatModalVisible(false);
     
     if (!transacao) return;
     
     console.log('Nova transação:', transacao);
     
-    // Atualizar a lista de transações localmente (para demonstração)
-    const novaTransacao = {
-      id: `local-${Date.now()}`,
-      ...transacao
-    };
-    
-    setTransacoes(prev => [novaTransacao, ...prev]);
-    
-    // Atualizar o resumo financeiro
-    if (transacao.tipo === 'despesa') {
-      const novaDespesa = resumoFinanceiro.totalDespesas + transacao.valor;
-      setResumoFinanceiro(prev => ({
-        ...prev,
-        totalDespesas: novaDespesa
-      }));
+    try {
+      // Verificar se a transação já foi salva pelo ChatTransactionModal
+      if (transacao.salvaNaAPI) {
+        console.log('✅ Transação já foi salva na API pelo modal, apenas atualizando UI');
+        
+        // Ao invés de calcular manualmente, vamos recarregar os dados do resumo financeiro
+        try {
+          const resumoAtualizado = await financasService.obterResumoFinanceiro();
+          if (resumoAtualizado && resumoAtualizado.success) {
+            console.log('✅ Resumo financeiro atualizado após nova transação:', resumoAtualizado);
+            setResumoFinanceiro(resumoAtualizado);
+            
+            const saldoAtualizado = parseFloat(resumoAtualizado.saldo || 0);
+            setSaldoDisponivel(saldoAtualizado);
+            
+            // Buscar novamente o salário para referência
+            try {
+              const salarioData = await financasService.listarTransacoes('salario', 1);
+              if (salarioData?.success && salarioData?.transacoes?.length > 0) {
+                const valorSalario = parseFloat(salarioData.transacoes[0].valor || 0);
+                if (valorSalario > 0) {
+                  setSalarioReferencia(valorSalario);
+                  // Atualizar a barra de progresso
+                  atualizarBarraProgresso(saldoAtualizado, valorSalario);
+                } else {
+                  atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+                }
+              } else {
+                atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+              }
+            } catch (error) {
+              console.error('❌ Erro ao buscar salário após nova transação:', error);
+              atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Erro ao atualizar resumo financeiro:', error);
+        }
+        
+        // Adicionar a transação à lista local
+        const novaTransacao = {
+          id: transacao.id || `local-${Date.now()}`,
+          ...transacao
+        };
+        
+        setTransacoes(prev => [novaTransacao, ...prev]);
+        
+        return;
+      }
       
-      // Atualizar saldo e progresso
-      const novoSaldo = ganhosTotal - novaDespesa;
-      setSaldoDisponivel(novoSaldo);
-      const percentual = Math.min(Math.max(novoSaldo / maxSaldo, 0), 1);
-      progressValue.value = withTiming(percentual, { 
-        duration: 1000,
-        easing: Easing.bezier(0.4, 0, 0.2, 1)
-      });
-    } else if (transacao.tipo === 'ganho') {
-      const novoGanho = resumoFinanceiro.totalGanhos + transacao.valor;
-      setResumoFinanceiro(prev => ({
-        ...prev,
-        totalGanhos: novoGanho
-      }));
+      // Se não foi salva, chamar o serviço da API para salvar a transação no Firebase
+      let resposta;
       
-      // Atualizar saldo e progresso
-      const novoSaldo = novoGanho - despesasTotal;
-      setSaldoDisponivel(novoSaldo);
-      const percentual = Math.min(Math.max(novoSaldo / maxSaldo, 0), 1);
-      progressValue.value = withTiming(percentual, { 
-        duration: 1000,
-        easing: Easing.bezier(0.4, 0, 0.2, 1)
-      });
+      if (transacao.tipo === 'despesa') {
+        console.log('💸 Enviando despesa para API...');
+        resposta = await financasService.adicionarDespesa(transacao);
+      } else if (transacao.tipo === 'ganho') {
+        console.log('💰 Enviando ganho para API...');
+        resposta = await financasService.adicionarGanho(transacao);
+      }
+      
+      console.log('✅ Resposta da API:', JSON.stringify(resposta, null, 2));
+      
+      if (resposta && resposta.success) {
+        console.log('✅ Transação salva com sucesso no Firebase!');
+        
+        // Após o salvamento bem-sucedido, atualizar a lista de transações localmente
+        // com o ID retornado pela API se disponível
+        const transacaoId = resposta.data?.despesa_id || resposta.data?.ganho_id || `local-${Date.now()}`;
+        
+        const novaTransacao = {
+          id: transacaoId,
+          ...transacao
+        };
+        
+        setTransacoes(prev => [novaTransacao, ...prev]);
+        
+        // Atualizar o resumo financeiro consultando a API novamente
+        try {
+          const resumoAtualizado = await financasService.obterResumoFinanceiro();
+          if (resumoAtualizado && resumoAtualizado.success) {
+            console.log('✅ Resumo financeiro atualizado após nova transação:', resumoAtualizado);
+            setResumoFinanceiro(resumoAtualizado);
+            
+            const saldoAtualizado = parseFloat(resumoAtualizado.saldo || 0);
+            setSaldoDisponivel(saldoAtualizado);
+            
+            // Buscar novamente o salário para referência
+            try {
+              const salarioData = await financasService.listarTransacoes('salario', 1);
+              if (salarioData?.success && salarioData?.transacoes?.length > 0) {
+                const valorSalario = parseFloat(salarioData.transacoes[0].valor || 0);
+                if (valorSalario > 0) {
+                  setSalarioReferencia(valorSalario);
+                  // Atualizar a barra de progresso
+                  atualizarBarraProgresso(saldoAtualizado, valorSalario);
+                } else {
+                  atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+                }
+              } else {
+                atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+              }
+            } catch (error) {
+              console.error('❌ Erro ao buscar salário após nova transação:', error);
+              atualizarBarraProgresso(saldoAtualizado, maxSaldo);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Erro ao atualizar resumo financeiro:', error);
+        }
+      } else {
+        console.error('❌ Erro ao salvar transação:', resposta?.message || 'Erro desconhecido');
+        Alert.alert('Erro', 'Não foi possível salvar a transação. Tente novamente mais tarde.');
+      }
+    } catch (error) {
+      console.error('❌ Erro na requisição à API:', error.message || error);
+      
+      // Tentar obter mais detalhes do erro
+      if (error.response) {
+        console.error('📄 Dados da resposta:', error.response.data);
+        console.error('🔍 Status code:', error.response.status);
+      }
+      
+      Alert.alert('Erro', 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.');
     }
   };
 
@@ -803,6 +1022,7 @@ function HomeScreen({ navigation }) {
         progressValue={progressValue}
         formatarMoeda={formatarMoeda}
         progressStyle={progressStyle}
+        transacoes={transacoes}
       />
     );
   };
@@ -829,12 +1049,75 @@ function HomeScreen({ navigation }) {
             progressValue={progressValue}
             formatarMoeda={formatarMoeda}
             progressStyle={progressStyle}
+            transacoes={transacoes}
           />
         </View>
         <Text style={styles.carouselItemName}>{item.name}</Text>
       </Pressable>
     );
   };
+
+  // Função para atualizar os dados (pull-to-refresh)
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Obter resumo financeiro atualizado
+      const resumoAtualizado = await financasService.obterResumoFinanceiro();
+      
+      if (resumoAtualizado && resumoAtualizado.success) {
+        console.log('✅ Resumo financeiro atualizado via pull-to-refresh:', resumoAtualizado);
+        setResumoFinanceiro(resumoAtualizado);
+        
+        // Definir saldo atualizado
+        const saldoAtual = resumoAtualizado.saldo;
+        setSaldoDisponivel(parseFloat(saldoAtual || 0));
+        
+        // Buscar informações do salário para usar como referência para a barra de progresso
+        try {
+          const salarioData = await financasService.listarTransacoes('salario', 1);
+          if (salarioData && salarioData.success && salarioData.transacoes && salarioData.transacoes.length > 0) {
+            const valorSalario = parseFloat(salarioData.transacoes[0].valor || 0);
+            console.log(`💰 Salário encontrado (refresh): R$${valorSalario.toFixed(2)}`);
+            
+            if (valorSalario > 0) {
+              // Definir o salário como referência
+              setSalarioReferencia(valorSalario);
+              
+              // Atualizar a barra de progresso com o novo salário e saldo
+              atualizarBarraProgresso(saldoAtual, valorSalario);
+            } else {
+              // Fallback para o cálculo anterior se o salário for zero ou inválido
+              console.log('⚠️ Valor do salário inválido, usando cálculo padrão (refresh)');
+              atualizarBarraProgresso(saldoAtual, maxSaldo);
+            }
+          } else {
+            // Se não encontrou salário, usar o cálculo padrão
+            console.log('ℹ️ Nenhum salário configurado, usando cálculo padrão (refresh)');
+            atualizarBarraProgresso(saldoAtual, maxSaldo);
+          }
+        } catch (salarioError) {
+          console.error('❌ Erro ao buscar salário de referência (refresh):', salarioError);
+          // Usar cálculo padrão em caso de erro
+          atualizarBarraProgresso(saldoAtual, maxSaldo);
+        }
+      }
+      
+      // Atualizar lista de transações
+      const transacoesData = await financasService.listarTransacoes(null);
+      if (transacoesData && transacoesData.success) {
+        // Filtrar para excluir salários e ordenar por data
+        const transacoesFiltradas = (transacoesData.transacoes || [])
+          .filter(transacao => transacao.tipo !== 'salario')
+          .sort((a, b) => new Date(b.data) - new Date(a.data));
+        
+        setTransacoes(transacoesFiltradas);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao atualizar dados via pull-to-refresh:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -872,6 +1155,16 @@ function HomeScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#A239FF']}
+            tintColor="#A239FF"
+            title="Atualizando..."
+            titleColor="#A239FF"
+          />
+        }
       >
         {/* Cartão com barra de progresso - Agora com gesture handler */}
         <LongPressGestureHandler
@@ -1030,7 +1323,8 @@ function HomeScreen({ navigation }) {
               <View style={styles.transactionsHeader}>
                 <Text style={styles.transactionsTitle}>
                   {tipoFiltro === 'despesa' ? 'Despesas' : 
-                   tipoFiltro === 'ganho' ? 'Ganhos' : 'Transações'}
+                   tipoFiltro === 'ganho' ? 'Ganhos' : 'Transações'} 
+                  <Text style={styles.transactionsSubtitle}> (10 mais recentes)</Text>
                 </Text>
                 <TouchableOpacity onPress={() => navigation.navigate('Transactions', { filter: tipoFiltro })}>
                   <Text style={styles.seeAllText}>Ver todas</Text>
@@ -1049,9 +1343,20 @@ function HomeScreen({ navigation }) {
                     </View>
                     
                     <View style={styles.transactionDetails}>
-                      <Text style={styles.transactionTitle}>{item.descricao}</Text>
+                      {/* Log para depuração da categoria */}
+                      {console.log(`Categoria da transação ${index}:`, item.categoria, typeof item.categoria)}
+                      <Text style={styles.transactionTitle}>
+                        {typeof item.categoria === 'string' 
+                          ? item.categoria 
+                          : getCategoryNameFromRedux(item.categoria, item.tipo)}
+                      </Text>
+                      {item.descricao ? (
+                        <Text style={styles.transactionDescription}>
+                          {item.descricao}
+                        </Text>
+                      ) : null}
                       <Text style={styles.transactionDate}>
-                        {new Date(item.data).toLocaleDateString('pt-BR')}
+                        {formatDateWithTimezoneOffset(item.data)}
                         {item.hora ? `, ${item.hora}` : ''}
                       </Text>
                     </View>
@@ -1260,8 +1565,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 15,
     marginBottom: 20,
+    width: '100%', // Garantir que ocupe 100% da largura disponível
   },
   progressBar: {
+    position: 'absolute', // Posicionamento absoluto para garantir fluidez
+    left: 0,
+    top: 0,
     height: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 3,
@@ -1386,6 +1695,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  transactionsSubtitle: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    fontWeight: 'normal',
+  },
   seeAllText: {
     color: '#A239FF',
     fontSize: 14,
@@ -1414,7 +1728,12 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 15,
     fontWeight: '500',
-    marginBottom: 4,
+    marginBottom: 2,
+  },
+  transactionDescription: {
+    color: '#AAAAAA',
+    fontSize: 13,
+    marginBottom: 2,
   },
   transactionDate: {
     color: '#AAAAAA',

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { formatCurrency } from '../../../utils/formatters';
+import { formatarMoeda } from '../../../utils/formatters';
 
 const InsightCard = ({ title, description, icon, color, value, maxValue }) => {
   // Calcular a porcentagem para a barra de progresso
@@ -50,10 +50,10 @@ const InsightCards = ({ insights = [], categoryData = [] }) => {
   const topCategoriesCards = !hasTopCategoryInsight && categoryData.length > 0 
     ? categoryData.slice(0, 3).map((category, index) => ({
         id: `category-${index}`,
-        title: category.categoria,
-        description: `${formatCurrency(category.total)} (${category.percentual}% do total)`,
+        title: category.nome || category.categoria || 'Categoria',
+        description: `${category.totalFormatado || formatarMoeda(category.total)} (${category.percentual}% do total)`,
         icon: category.icone || 'help-circle-outline',
-        color: getColorForCategory(index),
+        color: category.color || getColorForCategory(index),
         value: category.percentual,
         maxValue: 100
       }))

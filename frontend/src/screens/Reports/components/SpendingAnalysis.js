@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { formatCurrency } from '../../../utils/formatters';
+import { formatarMoeda } from '../../../utils/formatters';
 
 const CategoryItem = ({ category, color }) => {
   return (
@@ -13,10 +13,12 @@ const CategoryItem = ({ category, color }) => {
       </View>
       
       <View style={styles.categoryDetails}>
-        <Text style={styles.categoryName}>{category.categoria}</Text>
+        <Text style={styles.categoryName}>
+          {category.nome || category.categoria || 'Categoria desconhecida'}
+        </Text>
         <View style={styles.categoryStatsContainer}>
           <Text style={styles.categoryValue}>
-            {formatCurrency(category.total)}
+            {category.totalFormatado || formatarMoeda(category.total)}
           </Text>
           <Text style={styles.categoryPercentage}>
             {category.percentual}%
@@ -30,7 +32,7 @@ const CategoryItem = ({ category, color }) => {
               styles.progressBar, 
               { 
                 width: `${category.percentual}%`,
-                backgroundColor: color
+                backgroundColor: category.color || color
               }
             ]} 
           />

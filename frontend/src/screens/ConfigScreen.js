@@ -24,7 +24,7 @@ import AppBottomBar, { handleScroll } from '../components/AppBottomBar';
 import { BlurView } from 'expo-blur';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector } from 'react-redux';
-import api from '../services/api';
+import api, { financasService } from '../services/api';
 
 const ConfigScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -69,8 +69,25 @@ const ConfigScreen = ({ navigation }) => {
       () => setKeyboardVisible(false)
     );
 
-    // Carregar dados do salário
-    carregarDadosSalario();
+    // Carregar dados do salário apenas uma vez ao montar o componente
+    // e apenas se não tivermos já os dados E não estivermos carregando
+    // Verificar ambos salaryId e isLoadingSalary
+    if (!salaryId && !isLoadingSalary) {
+      // Usar um timeout para melhorar a experiência visual e reduzir chamadas
+      const timer = setTimeout(() => {
+        // Cada tela terá apenas uma chance de carregar os dados
+        // para evitar chamadas repetidas
+        if (!salaryId && !isLoadingSalary) {
+          carregarDadosSalario();
+        }
+      }, 1000); // Aumentar o tempo para reduzir chances de múltiplas chamadas
+      
+      return () => {
+        clearTimeout(timer); // Limpa o timer se o componente for desmontado
+        keyboardDidHideListener.remove();
+        keyboardDidShowListener.remove();
+      };
+    }
 
     return () => {
       keyboardDidHideListener.remove();
@@ -80,38 +97,109 @@ const ConfigScreen = ({ navigation }) => {
   
   // Função para carregar os dados do salário
   const carregarDadosSalario = async () => {
+    // Se já estiver carregando ou já tivermos um ID, não faz nada
+    if (isLoadingSalary || salaryId) {
+      return;
+    }
+    
     try {
       setIsLoadingSalary(true);
       
-      // Buscar transações do tipo salário
-      const response = await api.listarTransacoes('salario', 1);
-      
-      if (response.success && response.data && response.data.transacoes && response.data.transacoes.length > 0) {
-        const salarioAtual = response.data.transacoes[0];
-        setSalaryId(salarioAtual.id);
-        setSalary(salarioAtual.valor.toString());
+      // Verificar se o método existe antes de chamar
+      if (typeof financasService.obterSalario !== 'function') {
+        // Se o método obterSalario não existir, tentar com listarTransacoes
+        if (typeof financasService.listarTransacoes !== 'function') {
+          setIsLoadingSalary(false);
+          return;
+        }
         
-        // Converter a data de recebimento para um objeto Date
-        if (salarioAtual.data_recebimento) {
-          const parts = salarioAtual.data_recebimento.split('-');
-          if (parts.length === 3) {
-            // Se a data estiver no formato YYYY-MM-DD
-            const year = parseInt(parts[0]);
-            const month = parseInt(parts[1]) - 1; // Mês começa em 0 no JavaScript
-            const day = parseInt(parts[2]);
-            
-            const novaData = new Date();
-            novaData.setFullYear(year);
-            novaData.setMonth(month);
-            novaData.setDate(day);
-            
-            setPaymentDate(novaData);
+        // Buscar transações do tipo salário - usando como fallback
+        const response = await financasService.listarTransacoes('salario', 1);
+        
+        // Verificar se há dados de salário
+        if (response && response.success && response.transacoes && response.transacoes.length > 0) {
+          const salarioAtual = response.transacoes[0];
+          
+          // Salvar o ID para futuras atualizações
+          setSalaryId(salarioAtual.id);
+          
+          // Salvar o valor formatado como string
+          setSalary(salarioAtual.valor ? salarioAtual.valor.toString() : '');
+          
+          // Converter a data de recebimento para um objeto Date
+          if (salarioAtual.data_recebimento) {
+            const parts = salarioAtual.data_recebimento.split('-');
+            if (parts.length === 3) {
+              // Se a data estiver no formato YYYY-MM-DD
+              const year = parseInt(parts[0]);
+              const month = parseInt(parts[1]) - 1; // Mês começa em 0 no JavaScript
+              const day = parseInt(parts[2]);
+              
+              const novaData = new Date();
+              novaData.setFullYear(year);
+              novaData.setMonth(month);
+              novaData.setDate(day);
+              
+              setPaymentDate(novaData);
+            }
+          } else if (salarioAtual.data) {
+            // Tentar usar o campo 'data' se 'data_recebimento' não existir
+            const parts = salarioAtual.data.split('-');
+            if (parts.length === 3) {
+              const year = parseInt(parts[0]);
+              const month = parseInt(parts[1]) - 1;
+              const day = parseInt(parts[2]);
+              
+              const novaData = new Date();
+              novaData.setFullYear(year);
+              novaData.setMonth(month);
+              novaData.setDate(day);
+              
+              setPaymentDate(novaData);
+            }
           }
+        } else {
+          setSalary('');
+          setSalaryId(null);
+        }
+      } else {
+        // Usar o método específico para obter salário
+        const response = await financasService.obterSalario();
+        
+        if (response && response.success && response.salario) {
+          const salarioAtual = response.salario;
+          
+          // Salvar o ID para futuras atualizações
+          setSalaryId(salarioAtual.id);
+          
+          // Salvar o valor formatado como string
+          setSalary(salarioAtual.valor ? salarioAtual.valor.toString() : '');
+          
+          // Converter a data de recebimento
+          if (salarioAtual.data_recebimento) {
+            const parts = salarioAtual.data_recebimento.split('-');
+            if (parts.length === 3) {
+              const year = parseInt(parts[0]);
+              const month = parseInt(parts[1]) - 1;
+              const day = parseInt(parts[2]);
+              
+              const novaData = new Date();
+              novaData.setFullYear(year);
+              novaData.setMonth(month);
+              novaData.setDate(day);
+              
+              setPaymentDate(novaData);
+            }
+          }
+        } else {
+          setSalary('');
+          setSalaryId(null);
         }
       }
     } catch (error) {
-      console.error('Erro ao carregar dados do salário:', error);
-      Alert.alert('Erro', 'Não foi possível carregar os dados do salário.');
+      // Silenciar erros para não interromper a experiência do usuário
+      setSalary('');
+      setSalaryId(null);
     } finally {
       setIsLoadingSalary(false);
     }
@@ -121,6 +209,7 @@ const ConfigScreen = ({ navigation }) => {
   const salvarSalario = async () => {
     try {
       setIsSavingSalary(true);
+      console.log('🛑 Iniciando processo de salvar salário na tela de configuração');
       
       // Validar dados
       if (!salary || isNaN(parseFloat(salary)) || parseFloat(salary) <= 0) {
@@ -134,30 +223,83 @@ const ConfigScreen = ({ navigation }) => {
         valor: parseFloat(salary),
         data_recebimento: `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}-${String(paymentDate.getDate()).padStart(2, '0')}`,
         recorrente: true,
-        periodo: 'mensal'
+        periodo: 'mensal',
+        descricao: 'Salário Mensal',
+        categoria: '1', // Categoria padrão para salário
+        tipo: 'salario', // Explicitamente definir como tipo salário
+        data: new Date().toISOString().split('T')[0] // Data atual do registro
       };
+      
+      // =====================================================
+      // NOVA ABORDAGEM: Sempre criar um novo registro
+      // =====================================================
+      console.log('📦 Dados do salário a enviar:', JSON.stringify(dadosSalario, null, 2));
+      console.log('🗑️ Tentando limpar qualquer configuração de salário anterior');
       
       let response;
       
-      if (salaryId) {
-        // Atualizar salário existente
-        response = await api.atualizarSalario(salaryId, dadosSalario);
-      } else {
-        // Adicionar novo salário
-        response = await api.adicionarSalario(dadosSalario);
-        if (response.success && response.salario_id) {
-          setSalaryId(response.salario_id);
+      try {
+        // Se temos um ID de salário, vamos registrar
+        if (salaryId) {
+          console.log(`🔑 ID do salário atual: ${salaryId} - Este será ignorado e criaremos um novo`);
         }
-      }
-      
-      if (response.success) {
-        Alert.alert('Sucesso', 'Configurações de salário salvas!');
-        setModalVisible(false);
-      } else {
-        Alert.alert('Erro', response.message || 'Erro ao salvar configurações de salário.');
+        
+        // Independente se temos um ID salvo ou não, vamos criar um novo
+        console.log('➕ Criando novo registro de salário');
+        response = await financasService.adicionarSalario(dadosSalario);
+        console.log('✅ Resposta do servidor (criação):', JSON.stringify(response, null, 2));
+        
+        if (response && response.success && (response.salario_id || response.data?.id)) {
+          // Armazenar o ID do salário para futura referência
+          const novoId = response.salario_id || response.data?.id || null;
+          console.log('🔑 Novo ID de salário recebido:', novoId);
+          setSalaryId(novoId);
+          
+          // Exibir sucesso
+          Alert.alert('Sucesso', 'Novo salário configurado com sucesso!');
+          console.log('✓ Novo salário salvo com sucesso');
+          
+          // Fechar o modal
+          setModalVisible(false);
+          
+          // Verificar se o salário foi realmente salvo
+          try {
+            const verificacao = await financasService.listarTransacoes('salario', 1);
+            console.log('🔍 Verificação após salvar:', 
+              verificacao.transacoes?.length ? 'Salário encontrado' : 'Salário NÃO encontrado');
+            if (verificacao.transacoes?.length) {
+              console.log('📋 Dados do salário no Firebase:', JSON.stringify(verificacao.transacoes[0], null, 2));
+            }
+          } catch (verifyError) {
+            console.log('⚠️ Erro ao verificar se o salário foi salvo:', verifyError.message);
+          }
+          
+          // NOVO: Atualizar o resumo financeiro para refletir o novo saldo
+          try {
+            console.log('🔄 Atualizando resumo financeiro após adicionar salário');
+            const resumoAtualizado = await financasService.obterResumoFinanceiro();
+            if (resumoAtualizado && resumoAtualizado.success) {
+              console.log('✅ Resumo financeiro atualizado após adicionar salário:', resumoAtualizado);
+            } else {
+              console.log('⚠️ Não foi possível atualizar o resumo financeiro');
+            }
+          } catch (resumoError) {
+            console.error('❌ Erro ao atualizar resumo financeiro:', resumoError);
+          }
+          
+          // Recarregar dados após salvar
+          carregarDadosSalario();
+        } else {
+          const errorMsg = response?.message || 'Erro ao salvar configurações de salário.';
+          console.error('❌ Erro ao salvar salário:', errorMsg);
+          Alert.alert('Erro', errorMsg);
+        }
+      } catch (apiError) {
+        console.error('❌ Erro na comunicação com servidor:', apiError.message);
+        Alert.alert('Erro', `Falha na comunicação com o servidor: ${apiError.message}`);
       }
     } catch (error) {
-      console.error('Erro ao salvar salário:', error);
+      console.error('❌ Erro geral ao salvar salário:', error.message);
       Alert.alert('Erro', 'Ocorreu um erro ao salvar as configurações de salário.');
     } finally {
       setIsSavingSalary(false);
@@ -617,29 +759,37 @@ const ConfigScreen = ({ navigation }) => {
     onPress,
     hasSwitch = false,
     switchValue = false,
-    onSwitchChange = null 
+    onSwitchChange = null,
+    configured = false
   }) => (
     <TouchableOpacity 
       style={styles.configItem}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={styles.configItemIcon}>
-        <Icon name={icon} size={26} color="#A239FF" />
+      <View style={styles.configItemLeft}>
+        <View style={styles.configItemIcon}>
+          <Icon name={icon} size={24} color="#A239FF" />
+        </View>
+        <View style={styles.configItemContent}>
+          <Text style={styles.configItemTitle}>{title}</Text>
+          <Text style={styles.configItemDescription} numberOfLines={2}>{description}</Text>
+        </View>
       </View>
-      <View style={styles.configItemContent}>
-        <Text style={styles.configItemTitle}>{title}</Text>
-        <Text style={styles.configItemDescription}>{description}</Text>
+      <View style={styles.configItemRight}>
+        {configured && (
+          <Icon name="checkmark-circle" size={20} color="#4CAF50" style={{marginRight: 8}} />
+        )}
+        {hasSwitch ? (
+          <Switch
+            value={switchValue}
+            onValueChange={onSwitchChange}
+            color="#A239FF"
+          />
+        ) : (
+          <Icon name="chevron-forward-outline" size={20} color="#BDBDBD" />
+        )}
       </View>
-      {hasSwitch ? (
-        <Switch
-          value={switchValue}
-          onValueChange={onSwitchChange}
-          color="#A239FF"
-        />
-      ) : (
-        <Icon name="chevron-forward-outline" size={20} color="#BDBDBD" />
-      )}
     </TouchableOpacity>
   );
   
@@ -660,7 +810,7 @@ const ConfigScreen = ({ navigation }) => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Icon name="arrow-back" size={22} color="#AAA" />
+          <Icon name="arrow-back" size={22} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Configurações</Text>
         <View style={styles.headerRight} />
@@ -675,13 +825,18 @@ const ConfigScreen = ({ navigation }) => {
         scrollEventThrottle={16}
       >
         {/* Finanças */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>FINANÇAS</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Finanças</Text>
           {renderConfigItem({
             icon: 'cash-outline',
             title: 'Salário',
-            description: 'Defina seu salário e data de pagamento',
-            onPress: () => openModal(renderSalaryModal(), 'salary')
+            description: salaryId 
+              ? `R$ ${parseFloat(salary || 0).toFixed(2).replace('.', ',')} (Dia ${paymentDate ? paymentDate.getDate() : 1})` 
+              : 'Defina seu salário e data de pagamento. O valor será incluído no seu saldo disponível.',
+            onPress: () => navigation.navigate('SalaryConfig'),
+            configured: !!salaryId
           })}
           {renderConfigItem({
             icon: 'trending-up-outline',
@@ -698,8 +853,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
         
         {/* Personalização */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>PERSONALIZAÇÃO</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Personalização</Text>
           {renderConfigItem({
             icon: 'pricetag-outline',
             title: 'Categorias',
@@ -727,8 +884,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
 
         {/* Segurança */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>SEGURANÇA</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Segurança</Text>
           {renderConfigItem({
             icon: 'key-outline',
             title: 'PIN de Acesso',
@@ -744,8 +903,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
 
         {/* Notificações */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>NOTIFICAÇÕES</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notificações</Text>
           {renderConfigItem({
             icon: 'notifications-outline',
             title: 'Lembretes',
@@ -767,8 +928,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
         
         {/* Sincronização e Backup */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>SINCRONIZAÇÃO E BACKUP</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sincronização e Backup</Text>
           {renderConfigItem({
             icon: 'cloud-upload-outline',
             title: 'Backup Automático',
@@ -796,8 +959,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
 
         {/* Ajuda e Suporte */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>AJUDA E SUPORTE</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ajuda e Suporte</Text>
           {renderConfigItem({
             icon: 'help-circle-outline',
             title: 'Tutoriais',
@@ -819,8 +984,10 @@ const ConfigScreen = ({ navigation }) => {
         </View>
         
         {/* Dados */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>DADOS</Text>
+        </View>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Dados</Text>
           {renderConfigItem({
             icon: 'trash-outline',
             title: 'Excluir Dados',
@@ -886,10 +1053,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 16,
     backgroundColor: '#1A1A1C',
     borderBottomWidth: 1,
     borderBottomColor: '#2A2A2C',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
   },
   backButton: {
     width: 36,
@@ -900,7 +1072,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2A2C',
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '600',
     color: '#FFF',
   },
@@ -911,50 +1083,77 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
+  sectionHeader: {
+    marginTop: 20,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  sectionHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#A239FF',
+    letterSpacing: 1,
+  },
   section: {
-    marginTop: 16,
     backgroundColor: '#222224',
-    borderRadius: 10,
-    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#2A2A2C',
+    marginHorizontal: 2,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#999',
-    marginTop: 10,
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#AAA',
+    marginTop: 12,
+    marginBottom: 8,
     paddingHorizontal: 16,
+    letterSpacing: 0.5,
   },
   configItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#2A2A2C',
   },
+  configItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   configItemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#2A2A2C',
     marginRight: 14,
   },
   configItemContent: {
     flex: 1,
+    paddingRight: 8,
   },
   configItemTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFF',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   configItemDescription: {
-    fontSize: 12,
-    color: '#999',
+    fontSize: 13,
+    color: '#AAA',
+    lineHeight: 18,
+  },
+  configItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 40,
+    justifyContent: 'flex-end',
   },
   versionContainer: {
     alignItems: 'center',
@@ -1209,6 +1408,7 @@ const styles = StyleSheet.create({
   },
   scrollContentContainer: {
     paddingBottom: 135,
+    paddingTop: 10,
   },
   
   // Estilos para o picker de dias

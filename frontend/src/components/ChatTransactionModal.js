@@ -12,12 +12,15 @@ import {
   Animated,
   TouchableWithoutFeedback,
   ScrollView,
-  Modal
+  Modal,
+  Alert
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Icon from 'react-native-vector-icons/Ionicons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector } from 'react-redux';
+import { financasService } from '../services/api';
+import { formatDateWithTimezoneOffset } from '../utils/formatters';
 
 const { width, height } = Dimensions.get('window');
 
@@ -69,13 +72,12 @@ const ChatTransactionModal = ({ visible, onClose, tipoTransacao = 'despesa' }) =
   const successCheckmarkScale = useRef(new Animated.Value(0)).current;
   const successCircleOpacity = useRef(new Animated.Value(0)).current;
   
-  // Formatar data para exibição
+  // Formatar data para exibição com correção de fuso horário
   const formatarData = (data) => {
-    return data.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
+    if (!data) return '';
+    
+    // Usar a função utilitária para corrigir o problema de fuso horário
+    return formatDateWithTimezoneOffset(data);
   };
   
   // Efeito para animação de entrada
@@ -236,7 +238,7 @@ const ChatTransactionModal = ({ visible, onClose, tipoTransacao = 'despesa' }) =
   };
 
   // Animação de confirmação de sucesso
-  const animarConfirmacaoSucesso = () => {
+  const animarConfirmacaoSucesso = async () => {
     setMostrarAnimacaoSucesso(true);
     
     Animated.sequence([
@@ -253,6 +255,44 @@ const ChatTransactionModal = ({ visible, onClose, tipoTransacao = 'despesa' }) =
       }),
     ]).start();
     
+    // Preparar dados da transação
+    const transacaoData = {
+      valor: parseFloat(valor.replace(',', '.')),
+      descricao: descricao || categoria.nome,
+      categoria: categoria.id,
+      data: data.toISOString().split('T')[0],
+      tipo: tipoTransacao,
+      salvaNaAPI: false // Inicialmente, não está salva
+    };
+    
+    try {
+      // Enviar transação para a API
+      let resposta;
+      
+      if (tipoTransacao === 'despesa') {
+        console.log('💸 Enviando despesa para API...');
+        resposta = await financasService.adicionarDespesa(transacaoData);
+      } else if (tipoTransacao === 'ganho') {
+        console.log('💰 Enviando ganho para API...');
+        resposta = await financasService.adicionarGanho(transacaoData);
+      }
+      
+      console.log('✅ Resposta da API:', JSON.stringify(resposta, null, 2));
+      
+      if (resposta && resposta.success) {
+        console.log('✅ Transação salva com sucesso no Firebase!');
+        // Marcar como salva na API e adicionar o ID retornado
+        transacaoData.salvaNaAPI = true;
+        transacaoData.id = resposta.data?.despesa_id || resposta.data?.ganho_id || `api-${Date.now()}`;
+      } else {
+        console.error('❌ Erro ao salvar transação:', resposta?.message || 'Erro desconhecido');
+        // Não mostrar alerta aqui para não interromper a animação
+      }
+    } catch (error) {
+      console.error('❌ Erro na requisição à API:', error.message || error);
+      // Não mostrar alerta aqui para não interromper a animação
+    }
+    
     // Fecha o modal após a animação
     setTimeout(() => {
       setMostrarAnimacaoSucesso(false);
@@ -261,14 +301,8 @@ const ChatTransactionModal = ({ visible, onClose, tipoTransacao = 'despesa' }) =
       successCheckmarkScale.setValue(0);
       successCircleOpacity.setValue(0);
       
-      // Diretamente fechar o modal sem adicionar mais mensagens
-      onClose({
-        valor: parseFloat(valor.replace(',', '.')),
-        descricao: descricao || categoria.nome,
-        categoria: categoria.id,
-        data: data.toISOString().split('T')[0],
-        tipo: tipoTransacao
-      });
+      // Fechar o modal e passar os dados da transação para o componente pai
+      onClose(transacaoData);
     }, 1800);
   };
   

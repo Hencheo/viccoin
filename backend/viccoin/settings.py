@@ -41,11 +41,13 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'users',
+    'corsheaders',  # Adicionando o app corsheaders
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Adicionar Whitenoise para arquivos estáticos
+    'corsheaders.middleware.CorsMiddleware',  # Adicionando o middleware de CORS
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -201,3 +203,39 @@ if not IS_RENDER:
     LOGGING['loggers']['django']['handlers'].append('file')
     LOGGING['loggers']['viccoin']['handlers'].append('file')
     LOGGING['loggers']['users']['handlers'].append('file')
+
+# Configuração CORS
+CORS_ALLOW_ALL_ORIGINS = True  # Em produção, deve ser definido para False e especificar origens
+
+# Para produção, especifique as origens permitidas
+# CORS_ALLOWED_ORIGINS = [
+#     "https://seu-app-frontend.com",
+#     "http://localhost:3000",
+#     "http://localhost:19000", # Para Expo
+# ]
+
+# Permitir credenciais (cookies, tokens de autenticação)
+CORS_ALLOW_CREDENTIALS = True
+
+# Métodos HTTP permitidos
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# Headers permitidos
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]

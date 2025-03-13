@@ -36,6 +36,7 @@ const ReportsScreen = ({ navigation }) => {
     categoryData,
     totalDespesas,
     totalGanhos,
+    error,
     handleRefresh
   } = useReportsData(selectedPeriod, selectedCategory);
 
@@ -93,6 +94,14 @@ const ReportsScreen = ({ navigation }) => {
           />
         }
       >
+        {/* Exibir mensagem de erro se houver */}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Icon name="alert-circle-outline" size={24} color="#FF5252" />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+        
         {/* Barra de filtros */}
         <FilterBar 
           selectedPeriod={selectedPeriod}
@@ -169,6 +178,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 20,
     paddingBottom: 80,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 82, 82, 0.1)',
+    borderRadius: 8,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#FF5252',
+    marginLeft: 8,
+    flex: 1,
+    fontSize: 14,
   },
 });
 

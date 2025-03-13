@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { financasService } from '../../../services/api';
+import { formatarMoeda } from '../../../utils/formatters';
 
 const useReportsData = (period = 'month', category = 'all') => {
   const [isLoading, setIsLoading] = useState(true);
@@ -11,81 +12,9 @@ const useReportsData = (period = 'month', category = 'all') => {
   const [totalDespesas, setTotalDespesas] = useState(0);
   const [totalGanhos, setTotalGanhos] = useState(0);
   const [resumoMensal, setResumoMensal] = useState({});
+  const [error, setError] = useState(null);
 
   const user = useSelector(state => state.auth.user);
-
-  // Função para carregar dados das transações
-  const loadTransactions = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      
-      if (!user || !user.uid) {
-        console.log('Usuário não autenticado. Usando dados de exemplo.');
-        loadMockData();
-        return;
-      }
-      
-      // Lógica para determinar o período de datas
-      const { startDate, endDate } = getDateRange(period);
-      
-      try {
-        // Chamar API com os filtros
-        const response = await financasService.listarTransacoes(
-          user.uid, 
-          { startDate, endDate, category }
-        );
-        
-        if (response && response.success) {
-          const { transacoes, resumo } = response.data || {};
-          
-          // Processar os dados recebidos
-          setTransacoes(transacoes || []);
-          processTransactionData(transacoes || [], resumo || {});
-        } else {
-          // Carregar dados de exemplo em caso de falha da API
-          console.log('Resposta da API sem sucesso. Usando dados de exemplo.');
-          loadMockData();
-        }
-      } catch (error) {
-        // API indisponível, usar dados de exemplo
-        console.log('API indisponível para relatórios. Usando dados de exemplo:', error.message || 'Sem detalhes');
-        loadMockData();
-      }
-    } catch (error) {
-      // Erro geral, usar dados de exemplo
-      console.log('Erro ao processar dados de relatórios. Usando dados de exemplo:', error.message || 'Erro desconhecido');
-      loadMockData();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user, period, category, loadMockData, getDateRange, processTransactionData]);
-
-  // Função para processar os dados das transações 
-  // e gerar gráficos, insights e análises
-  const processTransactionData = useCallback((transactions, resumo) => {
-    // 1. Calcular totais de despesas e ganhos
-    const despesas = transactions.filter(t => t.tipo === 'despesa');
-    const ganhos = transactions.filter(t => t.tipo === 'ganho');
-    
-    const totalDesp = despesas.reduce((sum, t) => sum + Number(t.valor), 0);
-    const totalGan = ganhos.reduce((sum, t) => sum + Number(t.valor), 0);
-    
-    setTotalDespesas(totalDesp);
-    setTotalGanhos(totalGan);
-    setResumoMensal(resumo);
-    
-    // 2. Preparar dados para o gráfico
-    const graphData = prepareChartData(transactions, period);
-    setChartData(graphData);
-    
-    // 3. Preparar dados por categoria
-    const categoryStats = prepareCategoryData(transactions);
-    setCategoryData(categoryStats);
-    
-    // 4. Gerar insights
-    const insightData = generateInsights(transactions, categoryStats, resumo);
-    setInsights(insightData);
-  }, [period]);
 
   // Função para gerar o intervalo de datas baseado no período
   const getDateRange = useCallback((periodType) => {
@@ -98,8 +27,8 @@ const useReportsData = (period = 'month', category = 'all') => {
         startDate.setDate(today.getDate() - 7);
         break;
       case 'month':
-        // Mês atual
-        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        // Últimos 30 dias
+        startDate.setDate(today.getDate() - 30);
         break;
       case 'quarter':
         // Último trimestre
@@ -114,20 +43,146 @@ const useReportsData = (period = 'month', category = 'all') => {
         startDate = new Date(today.getFullYear() - 2, 0, 1);
         break;
       default:
-        // Mês atual (padrão)
-        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        // Últimos 30 dias (padrão)
+        startDate.setDate(today.getDate() - 30);
     }
     
     return {
-      startDate: startDate.toISOString(),
-      endDate: today.toISOString()
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: today.toISOString().split('T')[0]
     };
   }, []);
+
+  // Função para carregar os dados do relatório
+  const fetchReportData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Obter parâmetros da data
+      const { startDate, endDate } = getDateRange(period);
+      
+      console.log('Carregando relatório para o período:', period, 'de', startDate, 'até', endDate);
+      
+      // Passo 1: Obter o resumo financeiro
+      const resumoResponse = await financasService.obterResumoFinanceiro();
+      
+      if (!resumoResponse.success) {
+        setError('Não foi possível carregar o resumo financeiro');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Passo 2: Obter todas as transações
+      const transacoesResponse = await financasService.listarTransacoes(null);
+      
+      if (!transacoesResponse.success) {
+        setError('Não foi possível carregar as transações');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Filtrar transações de acordo com o período e categoria selecionados
+      const allTransactions = transacoesResponse.transacoes || [];
+      const filteredTransactions = allTransactions.filter(transaction => {
+        // Filtrar por período
+        const transactionDate = new Date(transaction.data);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        
+        // Filtrar por categoria, se especificada
+        const categoryMatches = category === 'all' || 
+                               transaction.categoria === category || 
+                               transaction.categoria === parseInt(category);
+        
+        return transactionDate >= start && 
+               transactionDate <= end && 
+               categoryMatches;
+      });
+      
+      console.log(`Encontradas ${filteredTransactions.length} transações no período selecionado`);
+      
+      // Processar os dados recebidos para criar resumo específico do período
+      // Incluindo salário como ganho para os totais
+      const despesas = filteredTransactions.filter(t => t.tipo === 'despesa');
+      const ganhos = filteredTransactions.filter(t => t.tipo === 'ganho' || t.tipo === 'salario');
+      
+      const totalDesp = despesas.reduce((sum, t) => sum + Number(t.valor || 0), 0);
+      const totalGan = ganhos.reduce((sum, t) => sum + Number(t.valor || 0), 0);
+      
+      // Criar resumo mensal com base no período selecionado
+      const resumoPeriodo = {
+        totalGanhos: totalGan,
+        totalDespesas: totalDesp,
+        saldo: totalGan - totalDesp,
+        periodo: period,
+        transactions: filteredTransactions
+      };
+      
+      console.log('Resumo do período:', {
+        totalGanhos: formatarMoeda(totalGan),
+        totalDespesas: formatarMoeda(totalDesp),
+        saldo: formatarMoeda(totalGan - totalDesp)
+      });
+      
+      // Processar os dados filtrados
+      processTransactionData(filteredTransactions, resumoPeriodo);
+      
+      // Atualizar estados
+      setTransacoes(filteredTransactions);
+      setTotalDespesas(totalDesp);
+      setTotalGanhos(totalGan);
+      setResumoMensal(resumoPeriodo);
+      
+    } catch (error) {
+      console.error('Erro ao carregar dados do relatório:', error);
+      setError(`Erro ao carregar dados: ${error.message}`);
+      
+      // Definir estados com dados vazios
+      setTransacoes([]);
+      setResumoMensal({
+        totalGanhos: 0,
+        totalDespesas: 0,
+        saldo: 0
+      });
+      setChartData({
+        labels: [],
+        datasets: []
+      });
+      setInsights([]);
+      setCategoryData([]);
+      
+    } finally {
+      setIsLoading(false);
+    }
+  }, [period, category, getDateRange, processTransactionData]);
+
+  // Função para processar os dados das transações 
+  // e gerar gráficos, insights e análises
+  const processTransactionData = useCallback((transactions, resumo) => {
+    // 1. Preparar dados para o gráfico
+    const graphData = prepareChartData(transactions, period);
+    setChartData(graphData);
+    
+    // 2. Preparar dados por categoria
+    const categoryStats = prepareCategoryData(transactions);
+    setCategoryData(categoryStats);
+    
+    // 3. Gerar insights
+    const insightData = generateInsights(transactions, categoryStats, resumo);
+    setInsights(insightData);
+  }, [period, prepareChartData, prepareCategoryData, generateInsights]);
 
   // Preparar dados para o gráfico baseado no período
   const prepareChartData = useCallback((transactions, periodType) => {
     if (!transactions || transactions.length === 0) {
-      return [];
+      return {
+        labels: [],
+        datasets: [
+          { label: 'Despesas', data: [], color: '#FF5252' },
+          { label: 'Ganhos', data: [], color: '#4CAF50' }
+        ]
+      };
     }
     
     const today = new Date();
@@ -141,7 +196,7 @@ const useReportsData = (period = 'month', category = 'all') => {
         labels = Array.from({ length: 7 }, (_, i) => {
           const date = new Date();
           date.setDate(today.getDate() - 6 + i);
-          return date.toISOString().slice(5, 10); // formato "MM-DD"
+          return date.toISOString().slice(5, 10).replace('-', '/'); // formato "MM/DD"
         });
         
         // Agrupar transações por dia da semana
@@ -155,40 +210,78 @@ const useReportsData = (period = 'month', category = 'all') => {
           if (daysDiff >= 0 && daysDiff < 7) {
             const index = 6 - daysDiff;
             if (t.tipo === 'despesa') {
-              despesasData[index] += Number(t.valor);
-            } else {
-              ganhosData[index] += Number(t.valor);
+              despesasData[index] += Number(t.valor || 0);
+            } else if (t.tipo === 'ganho' || t.tipo === 'salario') {
+              // Incluir salário como ganho nos gráficos
+              ganhosData[index] += Number(t.valor || 0);
             }
           }
         });
         break;
         
       case 'month':
-        // Gráfico por semana para o mês
-        const weeksInMonth = 4;
-        labels = Array.from({ length: weeksInMonth }, (_, i) => `Semana ${i + 1}`);
+        // Gráfico para os últimos 30 dias, dividido em 6 partes (5 dias cada)
+        const daysInPeriod = 30;
+        const parts = 6; // 5 dias por parte
         
-        // Agrupar transações por semana do mês
-        despesasData = new Array(weeksInMonth).fill(0);
-        ganhosData = new Array(weeksInMonth).fill(0);
+        // Calcular a data de início (30 dias atrás)
+        const startDate = new Date();
+        startDate.setDate(today.getDate() - (daysInPeriod - 1));
         
-        const currentMonth = today.getMonth();
-        const currentYear = today.getFullYear();
+        console.log(`Preparando gráfico para período de 30 dias: de ${startDate.toLocaleDateString()} até ${today.toLocaleDateString()}`);
         
-        transactions.forEach(t => {
-          const date = new Date(t.data);
+        // Criar labels para os 6 períodos de 5 dias cada
+        labels = Array.from({ length: parts }, (_, i) => {
+          const periodStartDate = new Date();
+          periodStartDate.setDate(startDate.getDate() + (i * (daysInPeriod / parts)));
           
-          if (date.getMonth() === currentMonth && date.getFullYear() === currentYear) {
-            const weekOfMonth = Math.floor((date.getDate() - 1) / 7);
-            const index = Math.min(weekOfMonth, weeksInMonth - 1);
+          const periodEndDate = new Date();
+          periodEndDate.setDate(startDate.getDate() + (i * (daysInPeriod / parts)) + ((daysInPeriod / parts) - 1));
+          
+          // Se o período cruza meses, adicionar mês abreviado
+          if (periodStartDate.getMonth() !== periodEndDate.getMonth()) {
+            const startDay = periodStartDate.getDate().toString().padStart(2, '0');
+            const startMonth = (periodStartDate.getMonth() + 1).toString().padStart(2, '0');
+            const endDay = periodEndDate.getDate().toString().padStart(2, '0');
+            const endMonth = (periodEndDate.getMonth() + 1).toString().padStart(2, '0');
+            return `${startDay}/${startMonth}-${endDay}/${endMonth}`;
+          }
+          
+          // Formato padrão: "DD-DD"
+          return `${periodStartDate.getDate().toString().padStart(2, '0')}-${periodEndDate.getDate().toString().padStart(2, '0')}`;
+        });
+        
+        // Inicializar arrays para cada parte
+        despesasData = new Array(parts).fill(0);
+        ganhosData = new Array(parts).fill(0);
+        
+        // Processar transações para os últimos 30 dias
+        transactions.forEach(t => {
+          // Converter a data da transação para objeto Date
+          const transactionDate = new Date(t.data);
+          
+          // Verificar se a transação está dentro do período de 30 dias
+          if (transactionDate >= startDate && transactionDate <= today) {
+            // Calcular o índice do período em que a transação se encaixa
+            const daysSinceStart = Math.floor((transactionDate - startDate) / (1000 * 60 * 60 * 24));
+            const partIndex = Math.min(Math.floor(daysSinceStart / (daysInPeriod / parts)), parts - 1);
             
+            // Adicionar o valor ao período correto
             if (t.tipo === 'despesa') {
-              despesasData[index] += Number(t.valor);
-            } else {
-              ganhosData[index] += Number(t.valor);
+              despesasData[partIndex] += Number(t.valor || 0);
+            } else if (t.tipo === 'ganho' || t.tipo === 'salario') {
+              // Incluir salário como ganho nos gráficos
+              ganhosData[partIndex] += Number(t.valor || 0);
             }
           }
         });
+        
+        console.log('Dados do gráfico gerados:', {
+          labels,
+          despesas: despesasData,
+          ganhos: ganhosData
+        });
+        
         break;
         
       case 'quarter':
@@ -201,7 +294,7 @@ const useReportsData = (period = 'month', category = 'all') => {
         labels = Array.from({ length: monthCount }, (_, i) => {
           const date = new Date();
           date.setMonth(today.getMonth() - (monthCount - 1) + i);
-          return date.toISOString().slice(0, 7); // formato "YYYY-MM"
+          return date.toISOString().slice(0, 7).replace('-', '/'); // formato "YYYY/MM"
         });
         
         // Agrupar transações por mês
@@ -217,13 +310,20 @@ const useReportsData = (period = 'month', category = 'all') => {
             const index = monthCount - 1 - monthsDiff;
             
             if (t.tipo === 'despesa') {
-              despesasData[index] += Number(t.valor);
-            } else {
-              ganhosData[index] += Number(t.valor);
+              despesasData[index] += Number(t.valor || 0);
+            } else if (t.tipo === 'ganho' || t.tipo === 'salario') {
+              // Incluir salário como ganho nos gráficos
+              ganhosData[index] += Number(t.valor || 0);
             }
           }
         });
         break;
+      
+      default:
+        // Caso padrão
+        labels = Array.from({ length: 4 }, (_, i) => `Semana ${i + 1}`);
+        despesasData = new Array(4).fill(0);
+        ganhosData = new Array(4).fill(0);
     }
     
     return {
@@ -249,33 +349,238 @@ const useReportsData = (period = 'month', category = 'all') => {
       return [];
     }
     
+    // Filtrar apenas despesas para análise de categorias
+    // E excluir salários da análise de categorias
+    const despesas = transactions.filter(t => t.tipo === 'despesa');
+    
+    if (despesas.length === 0) {
+      return [];
+    }
+    
     // Agrupar transações por categoria
     const categories = {};
     
-    transactions.forEach(t => {
-      if (!categories[t.categoria]) {
-        categories[t.categoria] = {
+    despesas.forEach(t => {
+      const categoriaKey = t.categoria.toString();
+      const categoriaNome = t.categoriaNome || t.categoriaNome === '' 
+        ? t.categoriaNome 
+        : (typeof t.categoria === 'string' ? t.categoria : getNomeCategoriaById(t.categoria));
+      
+      if (!categories[categoriaKey]) {
+        categories[categoriaKey] = {
           categoria: t.categoria,
-          icone: t.icone || 'help-circle-outline',
+          nome: categoriaNome,
+          icone: getIconForCategory(t.categoria),
+          color: getCategoryColor(t.categoria),
           total: 0,
           count: 0,
           percentual: 0,
         };
       }
       
-      categories[t.categoria].total += Number(t.valor);
-      categories[t.categoria].count += 1;
+      categories[categoriaKey].total += Number(t.valor || 0);
+      categories[categoriaKey].count += 1;
     });
     
     // Calcular total e percentuais
     const total = Object.values(categories).reduce((sum, cat) => sum + cat.total, 0);
     
     Object.keys(categories).forEach(key => {
-      categories[key].percentual = Math.round((categories[key].total / total) * 100);
+      categories[key].percentual = total > 0 ? Math.round((categories[key].total / total) * 100) : 0;
+      categories[key].totalFormatado = formatarMoeda(categories[key].total);
     });
     
     // Ordenar categorias por valor total (decrescente)
     return Object.values(categories).sort((a, b) => b.total - a.total);
+  }, []);
+
+  // Função auxiliar para obter o nome da categoria pelo ID
+  const getNomeCategoriaById = useCallback((categoriaId) => {
+    // Mapeamento de IDs de categoria para nomes
+    const categoriasMap = {
+      1: 'Salário',
+      2: 'Freelance',
+      3: 'Investimentos',
+      4: 'Vendas',
+      5: 'Presentes',
+      6: 'Alimentação',
+      7: 'Transporte',
+      8: 'Moradia',
+      9: 'Saúde',
+      10: 'Educação',
+      11: 'Lazer',
+      12: 'Compras',
+      13: 'Viagens',
+      14: 'Vestuário',
+      15: 'Eletrônicos',
+      16: 'Serviços',
+      17: 'Seguros',
+      18: 'Dívidas',
+      19: 'Impostos',
+      20: 'Outros'
+    };
+    
+    return categoriasMap[categoriaId] || `Categoria ${categoriaId}`;
+  }, []);
+
+  // Função auxiliar para obter ícone com base na categoria
+  const getIconForCategory = useCallback((categoria) => {
+    // Convert categoria to string for consistency
+    const catStr = String(categoria).toLowerCase();
+    
+    const iconMap = {
+      'alimentação': 'restaurant-outline',
+      'alimentos': 'restaurant-outline',
+      'alimentacao': 'restaurant-outline',
+      'comida': 'restaurant-outline',
+      'moradia': 'home-outline',
+      'casa': 'home-outline',
+      'aluguel': 'home-outline',
+      'transporte': 'car-outline',
+      'uber': 'car-outline',
+      'taxi': 'car-outline',
+      'lazer': 'game-controller-outline',
+      'diversão': 'game-controller-outline',
+      'divertimento': 'game-controller-outline',
+      'saúde': 'medical-outline',
+      'saude': 'medical-outline',
+      'médico': 'medical-outline',
+      'medico': 'medical-outline',
+      'educação': 'school-outline',
+      'educacao': 'school-outline',
+      'escola': 'school-outline',
+      'faculdade': 'school-outline',
+      'compras': 'cart-outline',
+      'shopping': 'cart-outline',
+      'viagem': 'airplane-outline',
+      'férias': 'airplane-outline',
+      'ferias': 'airplane-outline',
+      'tecnologia': 'hardware-chip-outline',
+      'eletrônicos': 'hardware-chip-outline',
+      'eletronicos': 'hardware-chip-outline',
+      'salário': 'cash-outline',
+      'salario': 'cash-outline',
+      'renda': 'cash-outline',
+      'investimentos': 'trending-up-outline',
+      'investimento': 'trending-up-outline',
+      'ações': 'trending-up-outline',
+      'acoes': 'trending-up-outline',
+      'freelance': 'briefcase-outline',
+      'trabalho': 'briefcase-outline',
+      'serviço': 'briefcase-outline',
+      'servico': 'briefcase-outline',
+      'vestuário': 'shirt-outline',
+      'vestuario': 'shirt-outline',
+      'roupas': 'shirt-outline',
+      'serviços': 'construct-outline',
+      'servicos': 'construct-outline',
+      'supermercado': 'basket-outline',
+      'mercado': 'basket-outline',
+      'entretenimento': 'film-outline',
+      'utilidades': 'flash-outline',
+      'contas': 'document-text-outline',
+      'outros': 'help-circle-outline'
+    };
+    
+    // Verifica se é um número (índice de categoria)
+    if (!isNaN(parseInt(catStr))) {
+      // Mapeia índices para categorias padrão
+      const indexMap = {
+        '1': 'cash-outline', // Salário
+        '2': 'briefcase-outline', // Freelance
+        '3': 'trending-up-outline', // Investimentos
+        '4': 'cart-outline', // Vendas
+        '5': 'gift-outline', // Presentes
+        // Índices para despesas
+        '6': 'restaurant-outline', // Alimentação
+        '7': 'car-outline', // Transporte
+        '8': 'home-outline', // Moradia
+        '9': 'medical-outline', // Saúde
+        '10': 'school-outline' // Educação
+      };
+      
+      return indexMap[catStr] || 'help-circle-outline';
+    }
+    
+    // Procura por correspondências parciais no nome da categoria
+    for (const [key, icon] of Object.entries(iconMap)) {
+      if (catStr.includes(key) || key.includes(catStr)) {
+        return icon;
+      }
+    }
+    
+    // Ícone padrão se nenhuma correspondência for encontrada
+    return 'help-circle-outline';
+  }, []);
+  
+  // Função auxiliar para obter cor com base na categoria
+  const getCategoryColor = useCallback((categoria) => {
+    // Convert categoria to string for consistency
+    const catStr = String(categoria).toLowerCase();
+    
+    const colorMap = {
+      'alimentação': '#FF5252',
+      'alimentacao': '#FF5252',
+      'alimentos': '#FF5252',
+      'comida': '#FF5252',
+      'moradia': '#2196F3',
+      'casa': '#2196F3',
+      'aluguel': '#2196F3',
+      'transporte': '#FFC107',
+      'uber': '#FFC107',
+      'taxi': '#FFC107',
+      'lazer': '#E040FB',
+      'diversão': '#E040FB',
+      'divertimento': '#E040FB',
+      'saúde': '#F44336',
+      'saude': '#F44336',
+      'médico': '#F44336',
+      'medico': '#F44336',
+      'educação': '#4CAF50',
+      'educacao': '#4CAF50',
+      'escola': '#4CAF50',
+      'faculdade': '#4CAF50',
+      'compras': '#FF9800',
+      'shopping': '#FF9800',
+      'viagem': '#00BCD4',
+      'férias': '#00BCD4',
+      'ferias': '#00BCD4',
+      'tecnologia': '#607D8B',
+      'eletrônicos': '#607D8B',
+      'eletronicos': '#607D8B',
+      'salário': '#4CAF50',
+      'salario': '#4CAF50',
+      'renda': '#4CAF50',
+      'investimentos': '#009688',
+      'investimento': '#009688',
+      'ações': '#009688',
+      'acoes': '#009688',
+      'freelance': '#8BC34A',
+      'trabalho': '#8BC34A',
+      'serviço': '#3F51B5',
+      'servico': '#3F51B5',
+      'vestuário': '#9C27B0',
+      'vestuario': '#9C27B0',
+      'roupas': '#9C27B0',
+      'serviços': '#3F51B5',
+      'servicos': '#3F51B5',
+      'supermercado': '#FF5722',
+      'mercado': '#FF5722',
+      'entretenimento': '#673AB7',
+      'utilidades': '#795548',
+      'contas': '#607D8B',
+      'outros': '#9E9E9E'
+    };
+    
+    // Procura por correspondências parciais no nome da categoria
+    for (const [key, color] of Object.entries(colorMap)) {
+      if (catStr.includes(key) || key.includes(catStr)) {
+        return color;
+      }
+    }
+    
+    // Cor padrão para categorias não identificadas
+    return '#A239FF';
   }, []);
 
   // Gerar insights com base nas transações e categorias
@@ -292,9 +597,9 @@ const useReportsData = (period = 'month', category = 'all') => {
       insights.push({
         id: 'top-category',
         title: 'Maior categoria de gasto',
-        description: `${topCategory.categoria} representa ${topCategory.percentual}% do seu gasto total`,
+        description: `${topCategory.nome} representa ${topCategory.percentual}% do seu gasto total`,
         icon: topCategory.icone,
-        color: '#FF5252',
+        color: topCategory.color || '#FF5252',
         value: topCategory.percentual,
         maxValue: 100,
       });
@@ -303,11 +608,11 @@ const useReportsData = (period = 'month', category = 'all') => {
     // Insight 2: Relação despesas vs. receitas
     const totalDespesas = transactions
       .filter(t => t.tipo === 'despesa')
-      .reduce((sum, t) => sum + Number(t.valor), 0);
+      .reduce((sum, t) => sum + Number(t.valor || 0), 0);
       
     const totalGanhos = transactions
-      .filter(t => t.tipo === 'ganho')
-      .reduce((sum, t) => sum + Number(t.valor), 0);
+      .filter(t => t.tipo === 'ganho' || t.tipo === 'salario')
+      .reduce((sum, t) => sum + Number(t.valor || 0), 0);
       
     if (totalGanhos > 0) {
       const percentualGasto = Math.round((totalDespesas / totalGanhos) * 100);
@@ -352,178 +657,33 @@ const useReportsData = (period = 'month', category = 'all') => {
       }
     }
     
-    // Insight 4: Tendência de gastos (comparado com o mês anterior)
-    if (resumo && resumo.comparativo_mes_anterior) {
-      const { percentual_variacao, direcao } = resumo.comparativo_mes_anterior;
-      
-      insights.push({
-        id: 'spending-trend',
-        title: 'Tendência de gastos',
-        description: `${direcao === 'aumento' ? 'Aumento' : 'Redução'} de ${percentual_variacao}% em relação ao mês anterior`,
-        icon: direcao === 'aumento' ? 'trending-up-outline' : 'trending-down-outline',
-        color: direcao === 'aumento' ? '#FF5252' : '#4CAF50',
-        value: percentual_variacao,
-        maxValue: 100,
-      });
-    }
+    // Insight 4: Economia ou Déficit
+    const saldo = totalGanhos - totalDespesas;
+    const situacao = saldo >= 0 ? 'economizou' : 'teve um déficit de';
+    const valor = Math.abs(saldo);
+    
+    insights.push({
+      id: 'savings',
+      title: saldo >= 0 ? 'Economia no período' : 'Déficit no período',
+      description: `Você ${situacao} R$ ${valor.toFixed(2)} neste período`,
+      icon: saldo >= 0 ? 'save-outline' : 'alert-circle-outline',
+      color: saldo >= 0 ? '#4CAF50' : '#FF5252',
+      value: valor,
+      maxValue: totalGanhos * 0.5, // 50% do ganho total como máximo da barra
+    });
     
     return insights;
   }, []);
 
-  // Função para carregar dados mockados de exemplo
-  const loadMockData = useCallback(() => {
-    // Dados de exemplo para o gráfico
-    const mockChartData = getMockChartData(period);
-    setChartData(mockChartData);
-    
-    // Dados de exemplo para categorias
-    const mockCategoryData = getMockCategoryData();
-    setCategoryData(mockCategoryData);
-    
-    // Dados de exemplo para insights
-    const mockInsights = getMockInsights();
-    setInsights(mockInsights);
-    
-    // Totais de exemplo
-    setTotalDespesas(3000);
-    setTotalGanhos(5000);
-    setResumoMensal({
-      saldo: 2000,
-      categoria_mais_gasta: 'Alimentação',
-      percentual_economia: 40
-    });
-    
-    // Transações de exemplo
-    setTransacoes(getMockTransactions());
-  }, [period]);
-
   // Manipulador para atualizar os dados
   const handleRefresh = useCallback(() => {
-    loadTransactions();
-  }, [loadTransactions]);
+    fetchReportData();
+  }, [fetchReportData]);
 
   // Carregar dados quando os filtros mudarem
   useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions, period, category]);
-
-  // Função para gerar transações mockadas
-  const getMockTransactions = () => {
-    const today = new Date();
-    const getDates = () => {
-      return Array.from({ length: 30 }, (_, i) => {
-        const date = new Date();
-        date.setDate(today.getDate() - i);
-        return date.toISOString();
-      });
-    };
-    
-    const dates = getDates();
-    
-    return [
-      // Despesas
-      { id: '1', tipo: 'despesa', categoria: 'Alimentação', valor: 450.90, descricao: 'Supermercado', data: dates[2], icone: 'fast-food-outline' },
-      { id: '2', tipo: 'despesa', categoria: 'Alimentação', valor: 120.00, descricao: 'Restaurante', data: dates[5], icone: 'fast-food-outline' },
-      { id: '3', tipo: 'despesa', categoria: 'Transporte', valor: 180.00, descricao: 'Combustível', data: dates[7], icone: 'car-outline' },
-      { id: '4', tipo: 'despesa', categoria: 'Lazer', valor: 250.00, descricao: 'Cinema e jantar', data: dates[10], icone: 'game-controller-outline' },
-      { id: '5', tipo: 'despesa', categoria: 'Moradia', valor: 1500.00, descricao: 'Aluguel', data: dates[15], icone: 'home-outline' },
-      { id: '6', tipo: 'despesa', categoria: 'Saúde', valor: 320.00, descricao: 'Consulta médica', data: dates[18], icone: 'medkit-outline' },
-      { id: '7', tipo: 'despesa', categoria: 'Educação', valor: 450.00, descricao: 'Curso online', data: dates[22], icone: 'school-outline' },
-      { id: '8', tipo: 'despesa', categoria: 'Alimentação', valor: 380.50, descricao: 'Supermercado', data: dates[25], icone: 'fast-food-outline' },
-      { id: '9', tipo: 'despesa', categoria: 'Transporte', valor: 150.00, descricao: 'Combustível', data: dates[27], icone: 'car-outline' },
-      
-      // Ganhos
-      { id: '10', tipo: 'ganho', categoria: 'Salário', valor: 4500.00, descricao: 'Salário mensal', data: dates[1], icone: 'cash-outline' },
-      { id: '11', tipo: 'ganho', categoria: 'Freelance', valor: 1200.00, descricao: 'Projeto website', data: dates[12], icone: 'briefcase-outline' },
-      { id: '12', tipo: 'ganho', categoria: 'Investimentos', valor: 350.00, descricao: 'Dividendos', data: dates[20], icone: 'trending-up-outline' },
-    ];
-  };
-
-  // Função para gerar dados de exemplo para o gráfico
-  const getMockChartData = (periodType) => {
-    let labels = [];
-    let despesasData = [];
-    let ganhosData = [];
-
-    switch (periodType) {
-      case 'week':
-        labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-        despesasData = [120, 180, 90, 350, 200, 430, 280];
-        ganhosData = [0, 1200, 0, 0, 800, 0, 0];
-        break;
-      case 'month':
-        labels = ['Semana 1', 'Semana 2', 'Semana 3', 'Semana 4'];
-        despesasData = [620, 890, 750, 980];
-        ganhosData = [1200, 0, 800, 3000];
-        break;
-      case 'quarter':
-        labels = ['Jan', 'Fev', 'Mar'];
-        despesasData = [2800, 3100, 3300];
-        ganhosData = [5000, 5200, 5300];
-        break;
-      case 'year':
-        labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        despesasData = [2800, 3100, 3300, 2900, 3000, 3200, 3100, 3400, 3000, 3100, 3200, 3500];
-        ganhosData = [5000, 5200, 5300, 5000, 5200, 5300, 5100, 5200, 5000, 5100, 5200, 5300];
-        break;
-      default:
-        labels = ['Semana 1', 'Semana 2', 'Semana 3', 'Semana 4'];
-        despesasData = [620, 890, 750, 980];
-        ganhosData = [1200, 0, 800, 3000];
-    }
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Despesas',
-          data: despesasData,
-          color: '#FF5252',
-        },
-        {
-          label: 'Ganhos',
-          data: ganhosData,
-          color: '#4CAF50',
-        },
-      ],
-    };
-  };
-
-  // Função para gerar dados de exemplo para categorias
-  const getMockCategoryData = () => {
-    return [
-      { categoria: 'Alimentação', percentual: 25, valor: 951.40, icone: 'fast-food-outline', cor: '#FF9800' },
-      { categoria: 'Moradia', percentual: 40, valor: 1500.00, icone: 'home-outline', cor: '#03A9F4' },
-      { categoria: 'Transporte', percentual: 10, valor: 330.00, icone: 'car-outline', cor: '#4CAF50' },
-      { categoria: 'Saúde', percentual: 8, valor: 320.00, icone: 'medkit-outline', cor: '#F44336' },
-      { categoria: 'Educação', percentual: 12, valor: 450.00, icone: 'school-outline', cor: '#9C27B0' },
-      { categoria: 'Lazer', percentual: 5, valor: 250.00, icone: 'game-controller-outline', cor: '#3F51B5' },
-    ];
-  };
-
-  // Função para gerar insights de exemplo
-  const getMockInsights = () => {
-    return [
-      {
-        titulo: 'Redução em Gastos',
-        descricao: 'Você gastou 15% menos em comparação ao mês anterior.',
-        tipo: 'positivo',
-        icone: 'trending-down-outline',
-      },
-      {
-        titulo: 'Categoria Principal',
-        descricao: 'Moradia representa 40% dos seus gastos mensais.',
-        tipo: 'neutro',
-        icone: 'pie-chart-outline',
-      },
-      {
-        titulo: 'Dica de Economia',
-        descricao: 'Seus gastos com alimentação aumentaram 8% este mês.',
-        tipo: 'negativo',
-        icone: 'fast-food-outline',
-      },
-    ];
-  };
+    fetchReportData();
+  }, [fetchReportData, period, category]);
 
   return {
     isLoading,
@@ -534,6 +694,7 @@ const useReportsData = (period = 'month', category = 'all') => {
     totalDespesas,
     totalGanhos,
     resumoMensal,
+    error,
     handleRefresh
   };
 };

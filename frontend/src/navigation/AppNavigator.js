@@ -9,6 +9,7 @@ import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ConfigScreen from '../screens/ConfigScreen';
+import SalaryConfigScreen from '../screens/SalaryConfigScreen';
 
 // Importando as novas telas de perfil
 import ProfileScreen from '../screens/Profile';
@@ -46,6 +47,7 @@ function AppNavigator() {
           <>
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Config" component={ConfigScreen} />
+            <Stack.Screen name="SalaryConfig" component={SalaryConfigScreen} />
             
             {/* Telas de Perfil */}
             <Stack.Screen name="Profile" component={ProfileScreen} />

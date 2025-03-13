@@ -3,23 +3,17 @@ import {
   View, 
   Text, 
   StyleSheet, 
-  TouchableOpacity, 
   Dimensions, 
   Image,
   SafeAreaView,
   StatusBar,
-  PanResponder
+  PanResponder,
+  Animated
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withTiming,
-  Easing,
-  withRepeat,
-  withSequence,
-  runOnJS
-} from 'react-native-reanimated';
+
+// Usamos Animated nativo do React Native em vez do Reanimated
+// para maior estabilidade em dispositivos variados
 
 const { width, height } = Dimensions.get('window');
 
@@ -38,27 +32,58 @@ function WelcomeScreen({ navigation }) {
   const [cardNumber, setCardNumber] = useState(generateRandomCardNumber());
   const cardNumberInterval = useRef(null);
   
-  // Valores animados - inicializados com 1 para garantir visibilidade constante
-  const cardOffset = useSharedValue(0);
-  const cardOpacity = useSharedValue(1);
-  const textOpacity = useSharedValue(1);
-  const buttonOpacity = useSharedValue(1);
+  // Estados para controlar visibilidade dos elementos de forma explícita
+  const [cardVisible, setCardVisible] = useState(false);
+  const [textVisible, setTextVisible] = useState(false);
+  const [buttonVisible, setButtonVisible] = useState(false);
   
-  // Valores para os elementos flutuantes
-  const bubble1Y = useSharedValue(height * 0.2);
-  const bubble2Y = useSharedValue(height * 0.3);
-  const bubble3Y = useSharedValue(height * 0.7);
+  // Estados para controlar animações
+  const [animationComplete, setAnimationComplete] = useState(false);
+  const animationStarted = useRef(false);
   
-  // Valor para o botão deslizável
-  const buttonOffset = useSharedValue(0);
-  const buttonWidth = width * 0.85; // Aumentado para 85% da largura da tela
-  const slideThreshold = buttonWidth * 0.3; // 30% do botão precisa ser deslizado para acionar
+  // Usando Animated nativo do React Native
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const cardPosition = useRef(new Animated.Value(50)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
+  const buttonOpacity = useRef(new Animated.Value(0)).current;
+  
+  // Animated values para os elementos flutuantes
+  const bubble1Position = useRef(new Animated.Value(0)).current;
+  const bubble2Position = useRef(new Animated.Value(0)).current;
+  const bubble3Position = useRef(new Animated.Value(0)).current;
+  
+  // Animated value para o botão deslizável
+  const sliderPosition = useRef(new Animated.Value(0)).current;
+  const buttonWidth = width * 0.85;
+  const slideThreshold = buttonWidth * 0.3;
 
   // Função para navegar para a próxima tela
   const navigateToLogin = () => {
-    if (navigation) {
-      navigation.navigate('Login');
-    }
+    console.log('Navegando para login após animação');
+    
+    // Fade out de todos os elementos
+    Animated.parallel([
+      Animated.timing(cardOpacity, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true
+      }),
+      Animated.timing(textOpacity, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true
+      }),
+      Animated.timing(buttonOpacity, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true
+      })
+    ]).start(() => {
+      // Só navegamos após concluir as animações
+      if (navigation) {
+        navigation.navigate('Login');
+      }
+    });
   };
 
   // Configuração do PanResponder para o botão deslizável
@@ -66,118 +91,166 @@ function WelcomeScreen({ navigation }) {
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderMove: (evt, gestureState) => {
-        // Limitar o deslizamento para direita e máximo de largura do botão - 60
+        // Limitar o deslizamento para direita
         const newX = Math.max(0, Math.min(gestureState.dx, buttonWidth - 60));
-        buttonOffset.value = newX;
+        sliderPosition.setValue(newX);
       },
       onPanResponderRelease: (evt, gestureState) => {
         if (gestureState.dx > slideThreshold) {
-          // Deslizou o suficiente, animar até o final e navegar
-          buttonOffset.value = withTiming(buttonWidth - 60, {
+          // Deslizou o suficiente, animar até o final
+          Animated.timing(sliderPosition, {
+            toValue: buttonWidth - 60,
             duration: 300,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1)
-          }, () => {
-            runOnJS(navigateToLogin)();
+            useNativeDriver: true
+          }).start(() => {
+            // Após a animação, navegamos para a próxima tela
+            navigateToLogin();
           });
         } else {
           // Não deslizou o suficiente, voltar ao início
-          buttonOffset.value = withTiming(0, {
-            duration: 300,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1)
-          });
+          Animated.timing(sliderPosition, {
+            toValue: 0,
+            duration: 400,
+            useNativeDriver: true
+          }).start();
         }
       }
     });
-  }, [navigation]);
+  }, [navigation, buttonWidth, slideThreshold]);
 
-  // Efeito para a animação estilo Matrix dos números do cartão
+  // Iniciar as animações de entrada
   useEffect(() => {
-    // Iniciar animação dos números do cartão
-    cardNumberInterval.current = setInterval(() => {
-      setCardNumber(generateRandomCardNumber());
-    }, 200); // Atualiza a cada 200ms para efeito Matrix
-
+    // Evitar executar as animações mais de uma vez
+    if (animationStarted.current) return;
+    animationStarted.current = true;
+    
+    console.log('Iniciando sequência de animações');
+    
+    // Animação de entrada do cartão
+    const cardAnimation = () => {
+      console.log('Animando cartão');
+      
+      // Mover o cartão para a posição e mostrar
+      Animated.parallel([
+        Animated.timing(cardPosition, {
+          toValue: 0,
+          duration: 1200,
+          useNativeDriver: true
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true
+        })
+      ]).start();
+      
+      // Atualizar o estado React para redundância
+      setCardVisible(true);
+    };
+    
+    // Animação do texto
+    const textAnimation = () => {
+      console.log('Animando texto');
+      Animated.timing(textOpacity, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true
+      }).start();
+      
+      // Atualizar o estado React para redundância
+      setTextVisible(true);
+    };
+    
+    // Animação do botão
+    const buttonAnimation = () => {
+      console.log('Animando botão');
+      Animated.timing(buttonOpacity, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true
+      }).start(() => {
+        // Marcar como concluído após a última animação
+        setAnimationComplete(true);
+      });
+      
+      // Atualizar o estado React para redundância
+      setButtonVisible(true);
+    };
+    
+    // Timers para sequenciar as animações
+    const timers = [];
+    
+    // Iniciar cartão após 1 segundo
+    const timer1 = setTimeout(cardAnimation, 1000);
+    timers.push(timer1);
+    
+    // Iniciar efeito matriz após 1.5 segundos
+    const timer2 = setTimeout(() => {
+      console.log('Iniciando efeito matriz');
+      cardNumberInterval.current = setInterval(() => {
+        setCardNumber(generateRandomCardNumber());
+      }, 250);
+    }, 1500);
+    timers.push(timer2);
+    
+    // Iniciar texto após 2.5 segundos
+    const timer3 = setTimeout(textAnimation, 2500);
+    timers.push(timer3);
+    
+    // Iniciar botão após 3.5 segundos
+    const timer4 = setTimeout(buttonAnimation, 3500);
+    timers.push(timer4);
+    
+    // Timer de segurança - garantir que tudo está visível após 4.5 segundos
+    const timer5 = setTimeout(() => {
+      console.log('Verificação de segurança - garantindo visibilidade');
+      setCardVisible(true);
+      setTextVisible(true);
+      setButtonVisible(true);
+      setAnimationComplete(true);
+      
+      // Forçar valores de animação para garantir visibilidade
+      cardOpacity.setValue(1);
+      cardPosition.setValue(0);
+      textOpacity.setValue(1);
+      buttonOpacity.setValue(1);
+    }, 4500);
+    timers.push(timer5);
+    
+    // Limpar timers na desmontagem
     return () => {
-      // Limpar o intervalo quando o componente for desmontado
+      timers.forEach(timer => clearTimeout(timer));
       if (cardNumberInterval.current) {
         clearInterval(cardNumberInterval.current);
       }
     };
   }, []);
 
+  // Animar bolhas flutuantes
   useEffect(() => {
-    // Animações das bolhas flutuantes
-    bubble1Y.value = withRepeat(
-      withSequence(
-        withTiming(height * 0.22, { duration: 3000 }),
-        withTiming(height * 0.2, { duration: 3000 })
-      ),
-      -1,
-      true
-    );
-
-    bubble2Y.value = withRepeat(
-      withSequence(
-        withTiming(height * 0.33, { duration: 4000 }),
-        withTiming(height * 0.3, { duration: 4000 })
-      ),
-      -1,
-      true
-    );
-
-    bubble3Y.value = withRepeat(
-      withSequence(
-        withTiming(height * 0.72, { duration: 3500 }),
-        withTiming(height * 0.7, { duration: 3500 })
-      ),
-      -1,
-      true
-    );
+    // Função para criar animação oscilante
+    const createFloatingAnimation = (animatedValue, baseValue, amplitude, duration) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(animatedValue, {
+            toValue: baseValue + amplitude,
+            duration: duration,
+            useNativeDriver: true
+          }),
+          Animated.timing(animatedValue, {
+            toValue: baseValue - amplitude,
+            duration: duration,
+            useNativeDriver: true
+          })
+        ])
+      ).start();
+    };
+    
+    // Iniciar animações flutuantes com valores diferentes para não sincronizar
+    createFloatingAnimation(bubble1Position, 0, 10, 3000);
+    createFloatingAnimation(bubble2Position, 0, 15, 4000);
+    createFloatingAnimation(bubble3Position, 0, 12, 3500);
   }, []);
-
-  // Estilos animados
-  const cardAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: cardOffset.value }],
-      opacity: cardOpacity.value,
-    };
-  });
-
-  const textAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: textOpacity.value,
-    };
-  });
-
-  const buttonAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: buttonOpacity.value,
-    };
-  });
-
-  const bubbleStyle1 = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: bubble1Y.value }]
-    };
-  });
-
-  const bubbleStyle2 = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: bubble2Y.value }]
-    };
-  });
-
-  const bubbleStyle3 = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: bubble3Y.value }]
-    };
-  });
-
-  const sliderKnobStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateX: buttonOffset.value }]
-    };
-  });
 
   return (
     <View style={styles.container}>
@@ -190,13 +263,41 @@ function WelcomeScreen({ navigation }) {
       />
 
       {/* Elementos flutuantes */}
-      <Animated.View style={[styles.bubble, styles.bubble1, bubbleStyle1]} />
-      <Animated.View style={[styles.bubble, styles.bubble2, bubbleStyle2]} />
-      <Animated.View style={[styles.bubble, styles.bubble3, bubbleStyle3]} />
+      <Animated.View 
+        style={[
+          styles.bubble, 
+          styles.bubble1,
+          { transform: [{ translateY: bubble1Position }] }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.bubble, 
+          styles.bubble2,
+          { transform: [{ translateY: bubble2Position }] }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.bubble, 
+          styles.bubble3,
+          { transform: [{ translateY: bubble3Position }] }
+        ]} 
+      />
 
       <SafeAreaView style={styles.content}>
         {/* Cards animados */}
-        <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
+        <Animated.View 
+          style={[
+            styles.cardContainer, 
+            { 
+              opacity: cardOpacity,
+              transform: [{ translateY: cardPosition }] 
+            },
+            // Backup de visibilidade usando estado React
+            cardVisible && animationComplete ? { opacity: 1 } : {}
+          ]}
+        >
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.chipContainer}>
@@ -214,7 +315,14 @@ function WelcomeScreen({ navigation }) {
         </Animated.View>
 
         {/* Texto principal */}
-        <Animated.View style={[styles.textContainer, textAnimatedStyle]}>
+        <Animated.View 
+          style={[
+            styles.textContainer, 
+            { opacity: textOpacity },
+            // Backup de visibilidade usando estado React
+            textVisible && animationComplete ? { opacity: 1 } : {}
+          ]}
+        >
           <Text style={styles.heading}>Simplifique Sua{'\n'}Vida Financeira</Text>
           <Text style={styles.subheading}>
             Monitore seus saldos, mantenha-se no orçamento{'\n'}
@@ -222,13 +330,23 @@ function WelcomeScreen({ navigation }) {
           </Text>
         </Animated.View>
 
-        {/* Botão deslizável - ajustado para ficar mais longe da parte inferior */}
-        <Animated.View style={[styles.buttonContainer, buttonAnimatedStyle]}>
+        {/* Botão deslizável */}
+        <Animated.View 
+          style={[
+            styles.buttonContainer, 
+            { opacity: buttonOpacity },
+            // Backup de visibilidade usando estado React
+            buttonVisible && animationComplete ? { opacity: 1 } : {}
+          ]}
+        >
           <View style={styles.sliderContainer}>
             <View style={styles.sliderTrack}>
               <Text style={styles.sliderHint}>Deslize para começar</Text>
               <Animated.View 
-                style={[styles.sliderKnob, sliderKnobStyle]}
+                style={[
+                  styles.sliderKnob, 
+                  { transform: [{ translateX: sliderPosition }] }
+                ]}
                 {...panResponder.panHandlers}
               >
                 <View style={styles.arrowContainer}>
